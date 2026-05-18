@@ -9,10 +9,9 @@ const RES_TABS = [
   { key:"courses",      label:"COURSES" },
   { key:"testimonials", label:"TESTIMONIALS" },
   { key:"photos",       label:"PHOTO WISHLIST" },
-  { key:"timesheet",    label:"TIMESHEET" },
 ];
 
-function ResourcesView({ timesheetEntries, onAddTimesheetEntry, ...props }) {
+function ResourcesView({ ...props }) {
   const [sub, setSub] = useSr("ideas");
 
   const subBtn = (k, l) => (
@@ -48,7 +47,6 @@ function ResourcesView({ timesheetEntries, onAddTimesheetEntry, ...props }) {
       {sub === "courses"      && <CoursesPanel      courses={props.courses}              setCourses={props.setCourses}          onAddToTasks={props.onAddToTasks}/>}
       {sub === "testimonials" && <TestimonialsPanel testimonials={props.testimonials}    setTestimonials={props.setTestimonials}  onAddToTasks={props.onAddToTasks}/>}
       {sub === "photos"       && <PhotosPanel       photos={props.photos}                setPhotos={props.setPhotos}            onAddToTasks={props.onAddToTasks}/>}
-      {sub === "timesheet"    && <TimesheetPanel entries={timesheetEntries} onAdd={onAddTimesheetEntry}/>}
     </div>
   );
 }
@@ -1175,126 +1173,5 @@ function PhotosPanel({ photos, setPhotos, onAddToTasks }) {
   );
 }
 
-// ── Timesheet (editable) ──
-function TimesheetPanel({ entries, onAdd }) {
-  const [date, setDate] = useSr("");
-  const [inTime, setInTime] = useSr("");
-  const [outTime, setOutTime] = useSr("");
-  const [err, setErr] = useSr("");
-
-  const handleAdd = () => {
-    if (!date || !inTime || !outTime) { setErr("Please fill in all three fields."); return; }
-    const [inH, inM] = inTime.split(":").map(Number);
-    const [outH, outM] = outTime.split(":").map(Number);
-    const hours = ((outH * 60 + outM) - (inH * 60 + inM)) / 60;
-    if (hours <= 0) { setErr("Out time must be after in time."); return; }
-    setErr("");
-    onAdd({ date, in: inTime, out: outTime, hours: Math.round(hours * 100) / 100 });
-    setDate(""); setInTime(""); setOutTime("");
-  };
-
-  const flettTotal = entries.reduce((s, e) => s + e.hours, 0);
-
-  function byMonth(arr) {
-    const map = {};
-    for (const e of arr) {
-      const m = e.date.slice(0,7);
-      if (!map[m]) map[m] = { hours:0, sessions:0 };
-      map[m].hours += e.hours;
-      map[m].sessions += 1;
-    }
-    return Object.entries(map).map(([m,v]) => ({ month:m, ...v })).sort((a,b) => a.month.localeCompare(b.month));
-  }
-  const flettByMonth = byMonth(entries);
-  const maxMonth = Math.max(1, ...flettByMonth.map(x => x.hours));
-
-  const inputStyle = { color:T.ink, background:T.surface, border:`1px solid ${T.border}`, borderRadius:4, padding:"5px 9px", fontSize:12, fontFamily:"inherit" };
-
-  return (
-    <div>
-      {/* Add session form */}
-      <div style={{ background:T.cardBg, border:`1px solid ${T.border}`, borderRadius:8, padding:"18px 20px", marginBottom:24 }}>
-        <p style={{ fontSize:10, color:T.muted, fontWeight:800, letterSpacing:"0.12em", marginBottom:12 }}>ADD SESSION</p>
-        <div style={{ display:"flex", alignItems:"center", gap:12, flexWrap:"wrap" }}>
-          <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
-            <label style={{ fontSize:9.5, color:T.muted, fontWeight:700, letterSpacing:"0.08em" }}>DATE</label>
-            <input type="date" value={date} onChange={e => setDate(e.target.value)} style={inputStyle}/>
-          </div>
-          <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
-            <label style={{ fontSize:9.5, color:T.muted, fontWeight:700, letterSpacing:"0.08em" }}>IN</label>
-            <input type="time" value={inTime} onChange={e => setInTime(e.target.value)} style={inputStyle}/>
-          </div>
-          <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
-            <label style={{ fontSize:9.5, color:T.muted, fontWeight:700, letterSpacing:"0.08em" }}>OUT</label>
-            <input type="time" value={outTime} onChange={e => setOutTime(e.target.value)} style={inputStyle}/>
-          </div>
-          <button onClick={handleAdd} style={{
-            background:T.gold, color:"#fff", border:"none", borderRadius:4,
-            padding:"6px 14px", fontWeight:800, cursor:"pointer", fontFamily:"inherit",
-            alignSelf:"flex-end",
-          }}>+ Add Session</button>
-        </div>
-        {err && <p style={{ fontSize:11, color:T.urgent, marginTop:8 }}>{err}</p>}
-      </div>
-
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(240px, 1fr))", gap:14, marginBottom:24 }}>
-        <div style={{ background:T.navy, color:"#fff", borderRadius:8, padding:"16px 20px" }}>
-          <p style={{ fontSize:10.5, color:"rgba(255,255,255,0.6)", letterSpacing:"0.12em", fontWeight:700, marginBottom:6 }}>FLETT FAMILY · TOTAL</p>
-          <p style={{ fontFamily:"'ProximaNova Black', sans-serif", fontWeight:900, fontSize:36, color:T.gold, lineHeight:1, letterSpacing:"-0.02em" }}>{flettTotal.toFixed(1)}h</p>
-          <p style={{ fontSize:11, color:"rgba(255,255,255,0.7)", marginTop:6 }}>{entries.length} sessions over {flettByMonth.length} months</p>
-        </div>
-      </div>
-      <div style={{ marginBottom:24 }}>
-        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14 }}>
-          <span style={{ width:4, height:16, background:T.vanja }}></span>
-          <h2 style={{ fontFamily:"'ProximaNova Black', sans-serif", fontWeight:800, fontSize:14, color:T.heading, letterSpacing:"0.1em" }}>FLETT FAMILY · HOURS PER MONTH</h2>
-        </div>
-        <div style={{ background:T.cardBg, border:`1px solid ${T.border}`, borderRadius:8, padding:"18px 20px" }}>
-          {flettByMonth.map(m => {
-            const pct = (m.hours / maxMonth) * 100;
-            return (
-              <div key={m.month} style={{ display:"flex", alignItems:"center", gap:14, marginBottom:10 }}>
-                <p style={{ width:90, fontSize:11.5, color:T.muted, fontWeight:700, letterSpacing:"0.04em" }}>{m.month}</p>
-                <div style={{ flex:1, height:14, background:T.surface, borderRadius:3 }}>
-                  <div style={{ width:`${pct}%`, height:"100%", background:T.vanja, borderRadius:3 }}></div>
-                </div>
-                <p style={{ width:60, textAlign:"right", fontSize:12, color:T.ink, fontWeight:800, fontFamily:"'ProximaNova Black', sans-serif" }}>{m.hours.toFixed(1)}h</p>
-                <p style={{ width:54, textAlign:"right", fontSize:10.5, color:T.faint }}>{m.sessions} sess</p>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-      <div>
-        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:14 }}>
-          <span style={{ width:4, height:16, background:T.gold }}></span>
-          <h2 style={{ fontFamily:"'ProximaNova Black', sans-serif", fontWeight:800, fontSize:14, color:T.heading, letterSpacing:"0.1em" }}>RECENT 20 SESSIONS</h2>
-        </div>
-        <div style={{ background:T.cardBg, border:`1px solid ${T.border}`, borderRadius:8, overflow:"hidden" }}>
-          <table style={{ width:"100%", borderCollapse:"collapse" }}>
-            <thead>
-              <tr style={{ background:T.surface, borderBottom:`1px solid ${T.border}` }}>
-                <th style={{ textAlign:"left", padding:"10px 14px", fontSize:10, fontWeight:800, color:T.muted, letterSpacing:"0.1em" }}>DATE</th>
-                <th style={{ textAlign:"left", padding:"10px 14px", fontSize:10, fontWeight:800, color:T.muted, letterSpacing:"0.1em" }}>IN</th>
-                <th style={{ textAlign:"left", padding:"10px 14px", fontSize:10, fontWeight:800, color:T.muted, letterSpacing:"0.1em" }}>OUT</th>
-                <th style={{ textAlign:"right", padding:"10px 14px", fontSize:10, fontWeight:800, color:T.muted, letterSpacing:"0.1em" }}>HOURS</th>
-              </tr>
-            </thead>
-            <tbody>
-              {entries.slice().sort((a,b) => b.date.localeCompare(a.date)).slice(0,20).map((e, i) => (
-                <tr key={i} style={{ borderTop:`1px solid ${T.border}` }}>
-                  <td style={{ padding:"8px 14px", fontSize:11.5, color:T.ink, fontWeight:600 }}>{e.date}</td>
-                  <td style={{ padding:"8px 14px", fontSize:11.5, color:T.text }}>{e.in}</td>
-                  <td style={{ padding:"8px 14px", fontSize:11.5, color:T.text }}>{e.out}</td>
-                  <td style={{ padding:"8px 14px", fontSize:11.5, textAlign:"right", color:T.ink, fontWeight:700, fontFamily:"'ProximaNova Black', sans-serif" }}>{e.hours.toFixed(2)}h</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 Object.assign(window, { ResourcesView });

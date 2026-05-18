@@ -29,7 +29,6 @@ const TABS = [
   { key:"plan",    label:"PLAN 2026" },
   { key:"team",    label:"TEAM" },
   { key:"resources", label:"RESOURCES" },
-  { key:"chat",    label:"CHAT" },
 ];
 
 function App() {
@@ -47,7 +46,6 @@ function App() {
   const [contentView, setContentView] = useS("week");  // controls Content tab nav & view
   const [tasksByDate, setTasksByDate] = useS(() => loadOr("tasksByDate", () => buildTasks()));
   const [content, setContent] = useS(() => loadOr("content", buildContentState));
-  const [msgs, setMsgs] = useS(() => loadOr("msgs", () => SEED_MSGS));
   const [chatAs, setChatAs] = useS("vanja");
   const [todayUser, setTodayUser] = useS(() => {
     try { return localStorage.getItem("prontoHQ.todayUser") || null; } catch(_) { return null; }
@@ -73,7 +71,7 @@ function App() {
   const [courses, setCourses] = useS(() => loadOr("courses", () => JSON.parse(JSON.stringify(COURSES))));
   const [testimonials, setTestimonials] = useS(() => loadOr("testimonials", () => JSON.parse(JSON.stringify(TESTIMONIALS))));
   const [photos, setPhotos] = useS(() => loadOr("photos", () => JSON.parse(JSON.stringify(PHOTO_WISHLIST))));
-  const [timesheet, setTimesheet] = useS(() => loadOr("timesheet", () => TIMESHEET.flettEntries));
+
 
   // Plan 2026 — flatten into items[] so each (section, month) can have multiple
   const initPlan = () => {
@@ -101,9 +99,9 @@ function App() {
   const fullState = () => ({
     version: 1,
     savedAt: new Date().toISOString(),
-    tasksByDate, content, msgs,
+    tasksByDate, content,
     ideas, suppliers, budget, onboarding, courses, testimonials, photos,
-    plan, staff, lunches, schedule, notifDismissed, timesheet,
+    plan, staff, lunches, schedule, notifDismissed,
   });
 
   useE(() => { window.chatAs = chatAs; }, [chatAs]);
@@ -119,7 +117,7 @@ function App() {
     const state = fullState();
     try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch (_) {}
     if (syncRef.current) syncRef.current.scheduleWrite(state);
-  }, [tasksByDate, content, msgs, ideas, suppliers, budget, onboarding, courses, testimonials, photos, plan, staff, lunches, schedule, notifDismissed, timesheet]);
+  }, [tasksByDate, content, ideas, suppliers, budget, onboarding, courses, testimonials, photos, plan, staff, lunches, schedule, notifDismissed]);
 
   // ── Export current state to a JSON file download ──
   const exportState = () => {
@@ -150,7 +148,6 @@ function App() {
         if (!confirm("Replace ALL current data with the contents of this file? Your local edits will be overwritten.")) return;
         if (data.tasksByDate) setTasksByDate(data.tasksByDate);
         if (data.content) setContent(data.content);
-        if (data.msgs) setMsgs(data.msgs);
         if (data.ideas) setIdeas(data.ideas);
         if (data.suppliers) setSuppliers(data.suppliers);
         if (data.budget) setBudget(data.budget);
@@ -174,7 +171,6 @@ function App() {
     if (!s) return;
     if (s.tasksByDate) setTasksByDate(s.tasksByDate);
     if (s.content) setContent(s.content);
-    if (s.msgs) setMsgs(s.msgs);
     if (s.ideas) setIdeas(s.ideas);
     if (s.suppliers) setSuppliers(s.suppliers);
     if (s.budget) setBudget(s.budget);
@@ -195,10 +191,6 @@ function App() {
     try { localStorage.removeItem(LS_KEY); } catch (_) {}
     window.location.reload();
   };
-
-  function onAddTimesheetEntry(entry) {
-    setTimesheet(prev => [...prev, entry]);
-  }
 
   const onToggle = (id) => setTasksByDate(prev => {
     const next = { ...prev };
@@ -433,12 +425,10 @@ function App() {
             onJumpTab={(k) => setTab(k)}
           />
           <NotificationsBell tasksByDate={tasksByDate} schedule={schedule} staff={staff}
-            msgs={msgs} chatAs={chatAs}
             dismissed={notifDismissed} setDismissed={setNotifDismissed}
             onJumpTask={(dk) => { setSelDate(parseISO(dk)); setView("day"); setTab("tasks"); }}
             onJumpSchedule={() => setTab("schedule")}
             onJumpStaff={() => setTab("team")}
-            onJumpChat={() => setTab("chat")}
           />
           <PresenceAvatars users={onlineUsers} myIdentity={chatAs} />
           {/* 3-way theme cycle: light → dark → navy → light */}
@@ -574,7 +564,6 @@ function App() {
           ) : (
             <TodayPicker onSelect={(u) => {
               setTodayUser(u);
-              setChatAs(u);
               try { localStorage.setItem("prontoHQ.todayUser", u); } catch(_) {}
             }} />
           )
@@ -608,10 +597,8 @@ function App() {
           testimonials={testimonials} setTestimonials={setTestimonials}
           photos={photos} setPhotos={setPhotos}
           onAddToTasks={onAdd}
-          timesheetEntries={timesheet}
-          onAddTimesheetEntry={onAddTimesheetEntry}
+
         />}
-        {tab === "chat" && <ChatView msgs={msgs} setMsgs={setMsgs} chatAs={chatAs} setChatAs={setChatAs} tasksByDate={tasksByDate} onJumpToTask={(dk) => { setSelDate(parseISO(dk)); setView("day"); setTab("tasks"); }}/>}
       </main>
     </div>
   );
