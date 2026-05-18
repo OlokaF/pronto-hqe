@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "pronto-hq",
+      "runtimeExecutable": "C:\\Program Files\\Adobe\\Adobe Creative Cloud Experience\\libs\\node.exe",
+      "runtimeArgs": ["server.js"],
+      "cwd": "C:\\Users\\OlokaFlett\\Downloads\\pronto-hq",
+      "port": 5173
+    }
+  ]
+}
