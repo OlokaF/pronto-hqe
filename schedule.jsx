@@ -1,4 +1,4 @@
-// ── Schedule view: drag tasks from today's list into a time-blocked planner ──
+// ── Schedule view: drag tasks + breaks into a time-blocked planner ──
 const { useState: useSh, useRef: useRh, useEffect: useEh, useMemo: useMh } = React;
 
 const SCHED_START = 7;   // 7am
@@ -14,8 +14,16 @@ function fmtTime(totalMin) {
   return m === 0 ? `${h12}${ampm}` : `${h12}:${String(m).padStart(2,"0")}${ampm}`;
 }
 
+// Unique ID for break blocks
+const newBreakId = () => `__brk_${Date.now()}_${Math.random().toString(36).slice(2,6)}`;
+// Canonical key for any block (break or task)
+const blockUid = (b) => b.isBreak ? b.breakId : String(b.taskId);
+
 const AI_KEY_LS = "prontoHQ.aiKey";
 
+// ─────────────────────────────────────────────────────────────────────────────
+// AI Plan panel (unchanged)
+// ─────────────────────────────────────────────────────────────────────────────
 function AIPlanPanel({ dateKey, onAddBlocks }) {
   const [input, setInput] = useSh("");
   const [apiKey, setApiKey] = useSh(() => { try { return localStorage.getItem(AI_KEY_LS) || ""; } catch(_) { return ""; } });
@@ -73,7 +81,7 @@ User's plan: ${input.trim()}`
 
   return (
     <div style={{
-      marginBottom:20, padding:"14px 16px",
+      marginBottom:16, padding:"14px 16px",
       background:T.surface, border:`1px solid ${T.border}`,
       borderLeft:`3px solid ${T.gold}`, borderRadius:8,
     }}>
@@ -130,17 +138,269 @@ User's plan: ${input.trim()}`
   );
 }
 
-function ScheduleView({ selDate, tasksByDate, schedule, setSchedule }) {
+// ─────────────────────────────────────────────────────────────────────────────
+// Morning Plan panel
+// ─────────────────────────────────────────────────────────────────────────────
+function MorningPlanPanel({ dk, dayNotes, setDayNotes }) {
+  const plan = ((dayNotes || {})[dk] || {}).plan || {};
+  const hasContent = !!(plan.p1 || plan.p2 || plan.p3 || plan.notes);
+  const [open, setOpen] = useSh(hasContent);
+
+  const setField = (field, val) => setDayNotes(prev => {
+    const day = prev[dk] || {};
+    return { ...prev, [dk]: { ...day, plan: { ...(day.plan || {}), [field]: val } } };
+  });
+
+  const priorities = [
+    { key:"p1", label:"Priority 1" },
+    { key:"p2", label:"Priority 2" },
+    { key:"p3", label:"Priority 3" },
+  ];
+
+  return (
+    <div style={{
+      marginBottom:16,
+      border:`1px solid ${T.border}`,
+      borderLeft:`3px solid ${T.gold}`,
+      borderRadius:8,
+      overflow:"hidden",
+      background:T.cardBg,
+    }}>
+      {/* Header toggle */}
+      <button onClick={() => setOpen(v => !v)} style={{
+        width:"100%", display:"flex", alignItems:"center", gap:10,
+        padding:"11px 16px",
+        background: open ? T.surface : T.cardBg,
+        border:"none", borderBottom: open ? `1px solid ${T.border}` : "none",
+        cursor:"pointer", textAlign:"left",
+      }}>
+        <span style={{ fontSize:15 }}>☀️</span>
+        <div style={{ flex:1 }}>
+          <p style={{ fontSize:10, fontWeight:800, letterSpacing:"0.14em", color:T.gold }}>MORNING PLAN</p>
+          {!open && (
+            <p style={{ fontSize:11, color: hasContent ? T.muted : T.faint, marginTop:2 }}>
+              {hasContent
+                ? [plan.p1, plan.p2, plan.p3].filter(Boolean).slice(0,2).join(" · ").slice(0,55) || "Notes added"
+                : "Set your top 3 priorities before the day kicks off"}
+            </p>
+          )}
+        </div>
+        <span style={{ fontSize:10, color:T.muted, marginLeft:4 }}>{open ? "▲" : "▼"}</span>
+      </button>
+
+      {open && (
+        <div style={{ padding:"14px 16px", display:"flex", flexDirection:"column", gap:9 }}>
+          {priorities.map(({ key, label }, i) => (
+            <div key={key} style={{ display:"flex", alignItems:"center", gap:10 }}>
+              <div style={{
+                width:22, height:22, borderRadius:"50%", flexShrink:0,
+                background: plan[key] ? T.gold : T.surface,
+                border:`1.5px solid ${plan[key] ? T.gold : T.border}`,
+                display:"flex", alignItems:"center", justifyContent:"center",
+                fontSize:10, fontWeight:800,
+                color: plan[key] ? "#fff" : T.muted,
+                transition:"all 0.15s",
+              }}>{i + 1}</div>
+              <input
+                value={plan[key] || ""}
+                onChange={e => setField(key, e.target.value)}
+                placeholder={`${label}…`}
+                style={{
+                  flex:1, padding:"7px 10px",
+                  border:`1px solid ${T.border}`, borderRadius:5,
+                  fontSize:12, color:T.ink, background:T.bg,
+                  outline:"none", fontFamily:"inherit",
+                }}
+              />
+            </div>
+          ))}
+          <textarea
+            value={plan.notes || ""}
+            onChange={e => setField("notes", e.target.value)}
+            placeholder="Any other notes before the day starts…"
+            rows={2}
+            style={{
+              padding:"8px 10px",
+              border:`1px solid ${T.border}`, borderRadius:5,
+              fontSize:12, color:T.ink, background:T.bg,
+              outline:"none", fontFamily:"inherit",
+              resize:"vertical", lineHeight:1.5, width:"100%",
+            }}
+          />
+          <p style={{ fontSize:10, color:T.faint }}>These stay here all day — your compass for the session.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Daily Review panel
+// ─────────────────────────────────────────────────────────────────────────────
+function DailyReviewPanel({ dk, dayNotes, setDayNotes }) {
+  const INDIGO = "#4F46E5";
+  const review = ((dayNotes || {})[dk] || {}).review || {};
+  const hasContent = !!(review.done || review.tomorrow || review.reflection);
+  const [open, setOpen] = useSh(false);
+
+  const setField = (field, val) => setDayNotes(prev => {
+    const day = prev[dk] || {};
+    return { ...prev, [dk]: { ...day, review: { ...(day.review || {}), [field]: val } } };
+  });
+
+  const fields = [
+    { key:"done",       label:"What I got done",    placeholder:"Wins and completions from today…",            accent:"#0E9F6E" },
+    { key:"tomorrow",   label:"Moving to tomorrow",  placeholder:"Tasks carrying over — drag to next day…",      accent:T.gold   },
+    { key:"reflection", label:"Quick reflection",    placeholder:"How did the day feel? Any learnings or blockers…", accent:INDIGO },
+  ];
+
+  return (
+    <div style={{
+      marginTop:16,
+      border:`1px solid ${T.border}`,
+      borderLeft:`3px solid ${INDIGO}`,
+      borderRadius:8,
+      overflow:"hidden",
+      background:T.cardBg,
+    }}>
+      <button onClick={() => setOpen(v => !v)} style={{
+        width:"100%", display:"flex", alignItems:"center", gap:10,
+        padding:"11px 16px",
+        background: open ? T.surface : T.cardBg,
+        border:"none", borderBottom: open ? `1px solid ${T.border}` : "none",
+        cursor:"pointer", textAlign:"left",
+      }}>
+        <span style={{ fontSize:15 }}>🌙</span>
+        <div style={{ flex:1 }}>
+          <p style={{ fontSize:10, fontWeight:800, letterSpacing:"0.14em", color:INDIGO }}>DAILY REVIEW</p>
+          {!open && (
+            <p style={{ fontSize:11, color: hasContent ? T.muted : T.faint, marginTop:2 }}>
+              {hasContent ? "Review notes saved ✓" : "End-of-day wrap-up — what happened, what moves, what you learnt"}
+            </p>
+          )}
+        </div>
+        <span style={{ fontSize:10, color:T.muted, marginLeft:4 }}>{open ? "▲" : "▼"}</span>
+      </button>
+
+      {open && (
+        <div style={{ padding:"14px 16px", display:"flex", flexDirection:"column", gap:14 }}>
+          {fields.map(({ key, label, placeholder, accent }) => (
+            <div key={key}>
+              <p style={{ fontSize:9, fontWeight:800, letterSpacing:"0.12em", color:accent, marginBottom:5 }}>
+                {label.toUpperCase()}
+              </p>
+              <textarea
+                value={review[key] || ""}
+                onChange={e => setField(key, e.target.value)}
+                placeholder={placeholder}
+                rows={2}
+                style={{
+                  width:"100%", padding:"8px 10px",
+                  border:`1px solid ${T.border}`, borderLeft:`2px solid ${accent}`,
+                  borderRadius:5,
+                  fontSize:12, color:T.ink, background:T.bg,
+                  outline:"none", fontFamily:"inherit",
+                  resize:"vertical", lineHeight:1.5,
+                }}
+              />
+            </div>
+          ))}
+          <p style={{ fontSize:10, color:T.faint }}>Saved automatically with the rest of your day data.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Break block strip (sidebar)
+// ─────────────────────────────────────────────────────────────────────────────
+function BreakBlockStrip({ drag, setDrag }) {
+  const [lunchDur, setLunchDur] = useSh(30);
+  const [shortDur, setShortDur] = useSh(15);
+
+  const BREAKS = [
+    { key:"lunch", label:"Lunch",  icon:"🍽", color:"#0E9F6E", soft:"#0E9F6E15", dur:lunchDur, setter:setLunchDur },
+    { key:"short", label:"Break",  icon:"☕", color:"#7C5DCA", soft:"#7C5DCA15", dur:shortDur, setter:setShortDur },
+  ];
+
+  return (
+    <div style={{
+      margin:"14px 0",
+      padding:"12px 13px",
+      background:T.surface,
+      border:`1px solid ${T.border}`,
+      borderRadius:8,
+    }}>
+      <p style={{ fontSize:9, fontWeight:800, letterSpacing:"0.14em", color:T.muted, marginBottom:9 }}>BREAK BLOCKS</p>
+      <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
+        {BREAKS.map(({ key, label, icon, color, soft, dur, setter }) => (
+          <div key={key} style={{ display:"flex", alignItems:"center", gap:7 }}>
+            {/* Draggable block */}
+            <div
+              draggable
+              onDragStart={(e) => {
+                setDrag({ isBreak:true, breakLabel:label, durationMin:dur, fromCol:"break" });
+                try { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", `break:${key}`); } catch(_) {}
+              }}
+              onDragEnd={() => setDrag(null)}
+              style={{
+                flex:1, padding:"7px 10px",
+                background:soft,
+                border:`1px dashed ${color}66`,
+                borderLeft:`3px solid ${color}`,
+                borderRadius:4,
+                cursor:"grab",
+                display:"flex", alignItems:"center", gap:7,
+                userSelect:"none",
+                // subtle diagonal stripe pattern
+                backgroundImage:`repeating-linear-gradient(135deg, transparent, transparent 4px, ${color}08 4px, ${color}08 8px)`,
+              }}
+            >
+              <span style={{ fontSize:13 }}>{icon}</span>
+              <span style={{ fontSize:11.5, fontWeight:700, color, flex:1 }}>{label}</span>
+              <span style={{ fontSize:10, fontWeight:600, color, opacity:0.8 }}>{dur}m</span>
+              <span style={{ fontSize:10, color:T.faint }}>⋮⋮</span>
+            </div>
+            {/* ± duration adjuster */}
+            <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
+              <button onClick={() => setter(d => Math.min(120, d + 5))} style={{
+                width:18, height:18, border:`1px solid ${T.border}`, borderRadius:3,
+                background:T.cardBg, color:T.muted, cursor:"pointer",
+                fontSize:11, fontWeight:800, lineHeight:1,
+                display:"flex", alignItems:"center", justifyContent:"center",
+                padding:0,
+              }}>+</button>
+              <button onClick={() => setter(d => Math.max(5, d - 5))} style={{
+                width:18, height:18, border:`1px solid ${T.border}`, borderRadius:3,
+                background:T.cardBg, color:T.muted, cursor:"pointer",
+                fontSize:11, fontWeight:800, lineHeight:1,
+                display:"flex", alignItems:"center", justifyContent:"center",
+                padding:0,
+              }}>−</button>
+            </div>
+          </div>
+        ))}
+      </div>
+      <p style={{ fontSize:9.5, color:T.faint, marginTop:8 }}>Drag into the timeline · ± to adjust duration</p>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ScheduleView
+// ─────────────────────────────────────────────────────────────────────────────
+function ScheduleView({ selDate, tasksByDate, schedule, setSchedule, dayNotes, setDayNotes, actualSchedule, setActualSchedule }) {
   const dk = isoDate(selDate);
   const tasksToday = (tasksByDate[dk] || []).filter(t => t.category !== "Event" && t.owner !== "event");
   const daySchedule = schedule[dk] || { vanja: [], oloka: [] };
+  const dayActual   = ((actualSchedule || {})[dk]) || { vanja: [], oloka: [] };
 
-  // Modal state: { owner, taskId }
+  const [actualMode, setActualMode] = useSh(false);
   const [editing, setEditing] = useSh(null);
-  // Whether to include tasks from other days
   const [includeOther, setIncludeOther] = useSh(false);
+  const [drag, setDrag] = useSh(null);
 
-  // All open tasks across every date, with the date they belong to
   const allOpenTasks = useMh(() => {
     const out = [];
     for (const date of Object.keys(tasksByDate || {})) {
@@ -153,7 +413,6 @@ function ScheduleView({ selDate, tasksByDate, schedule, setSchedule }) {
     return out;
   }, [tasksByDate]);
 
-  // Quick lookup of any task by id across the whole dataset (for showing inside schedule blocks)
   const tasksByIdRef = useMh(() => {
     const m = {};
     for (const date of Object.keys(tasksByDate || {})) {
@@ -162,10 +421,10 @@ function ScheduleView({ selDate, tasksByDate, schedule, setSchedule }) {
     return m;
   }, [tasksByDate]);
 
-  // Schedule blocks on THIS day; if a task is scheduled here, don't show it as unscheduled
+  // Only non-break scheduled tasks count as "scheduled"
   const scheduledHere = new Set([
-    ...(daySchedule.vanja || []).map(b => b.taskId),
-    ...(daySchedule.oloka || []).map(b => b.taskId),
+    ...(daySchedule.vanja || []).filter(b => !b.isBreak).map(b => b.taskId),
+    ...(daySchedule.oloka || []).filter(b => !b.isBreak).map(b => b.taskId),
   ]);
 
   const unscheduledForOwner = (owner) => {
@@ -176,38 +435,111 @@ function ScheduleView({ selDate, tasksByDate, schedule, setSchedule }) {
     return { todays, others };
   };
 
-  // Drag state
-  const [drag, setDrag] = useSh(null);
-  // drag = { taskId, fromOwner, fromCol: "unsched"|"sched", fromBlockIdx? }
-
+  // ── Planned schedule operations ──
   const addBlock = (owner, taskId, startMin) => {
     setSchedule(prev => {
       const next = { ...prev };
-      const day = { ...(next[dk] || { vanja: [], oloka: [] }) };
-      // Remove from either owner column on this day (in case it's being moved)
+      const day = { ...(next[dk] || { vanja:[], oloka:[] }) };
       day.vanja = (day.vanja || []).filter(b => b.taskId !== taskId);
       day.oloka = (day.oloka || []).filter(b => b.taskId !== taskId);
-      day[owner] = [...(day[owner] || []), { taskId, startMin, durationMin: 30 }];
-      day[owner].sort((a, b) => a.startMin - b.startMin);
+      day[owner] = [...(day[owner] || []), { taskId, startMin, durationMin:30 }];
+      day[owner].sort((a,b) => a.startMin - b.startMin);
       next[dk] = day;
       return next;
     });
   };
-  const removeBlock = (owner, taskId) => {
+
+  const addBreakBlock = (owner, breakLabel, startMin, durationMin) => {
     setSchedule(prev => {
       const next = { ...prev };
-      const day = { ...(next[dk] || { vanja: [], oloka: [] }) };
-      day[owner] = (day[owner] || []).filter(b => b.taskId !== taskId);
+      const day = { ...(next[dk] || { vanja:[], oloka:[] }) };
+      const breakId = newBreakId();
+      day[owner] = [...(day[owner] || []), { breakId, isBreak:true, breakLabel, startMin, durationMin }];
+      day[owner].sort((a,b) => a.startMin - b.startMin);
       next[dk] = day;
       return next;
     });
   };
-  const updateBlock = (owner, taskId, patch) => {
+
+  const removeBlock = (owner, taskId, breakId) => {
     setSchedule(prev => {
       const next = { ...prev };
-      const day = { ...(next[dk] || { vanja: [], oloka: [] }) };
-      day[owner] = (day[owner] || []).map(b => b.taskId === taskId ? { ...b, ...patch } : b);
-      day[owner].sort((a, b) => a.startMin - b.startMin);
+      const day = { ...(next[dk] || { vanja:[], oloka:[] }) };
+      if (breakId) {
+        day[owner] = (day[owner] || []).filter(b => b.breakId !== breakId);
+      } else {
+        day[owner] = (day[owner] || []).filter(b => b.taskId !== taskId);
+      }
+      next[dk] = day;
+      return next;
+    });
+  };
+
+  const updateBlock = (owner, taskId, patch, breakId) => {
+    setSchedule(prev => {
+      const next = { ...prev };
+      const day = { ...(next[dk] || { vanja:[], oloka:[] }) };
+      if (breakId) {
+        day[owner] = (day[owner] || []).map(b => b.breakId === breakId ? { ...b, ...patch } : b);
+      } else {
+        day[owner] = (day[owner] || []).map(b => b.taskId === taskId ? { ...b, ...patch } : b);
+      }
+      day[owner].sort((a,b) => a.startMin - b.startMin);
+      next[dk] = day;
+      return next;
+    });
+  };
+
+  // ── Actual schedule operations ──
+  const addActualBlock = (owner, taskId, startMin) => {
+    setActualSchedule(prev => {
+      const next = { ...(prev || {}) };
+      const day = { ...(next[dk] || { vanja:[], oloka:[] }) };
+      // Don't duplicate; allow re-placing
+      day[owner] = [...(day[owner] || []).filter(b => !b.isBreak && b.taskId !== taskId),
+        { taskId, startMin, durationMin:30 }];
+      day[owner].sort((a,b) => a.startMin - b.startMin);
+      next[dk] = day;
+      return next;
+    });
+  };
+
+  const addActualBreakBlock = (owner, breakLabel, startMin, durationMin) => {
+    setActualSchedule(prev => {
+      const next = { ...(prev || {}) };
+      const day = { ...(next[dk] || { vanja:[], oloka:[] }) };
+      const breakId = newBreakId();
+      day[owner] = [...(day[owner] || []), { breakId, isBreak:true, breakLabel, startMin, durationMin }];
+      day[owner].sort((a,b) => a.startMin - b.startMin);
+      next[dk] = day;
+      return next;
+    });
+  };
+
+  const removeActualBlock = (owner, taskId, breakId) => {
+    setActualSchedule(prev => {
+      const next = { ...(prev || {}) };
+      const day = { ...(next[dk] || { vanja:[], oloka:[] }) };
+      if (breakId) {
+        day[owner] = (day[owner] || []).filter(b => b.breakId !== breakId);
+      } else {
+        day[owner] = (day[owner] || []).filter(b => b.taskId !== taskId);
+      }
+      next[dk] = day;
+      return next;
+    });
+  };
+
+  const updateActualBlock = (owner, taskId, patch, breakId) => {
+    setActualSchedule(prev => {
+      const next = { ...(prev || {}) };
+      const day = { ...(next[dk] || { vanja:[], oloka:[] }) };
+      if (breakId) {
+        day[owner] = (day[owner] || []).map(b => b.breakId === breakId ? { ...b, ...patch } : b);
+      } else {
+        day[owner] = (day[owner] || []).map(b => b.taskId === taskId ? { ...b, ...patch } : b);
+      }
+      day[owner].sort((a,b) => a.startMin - b.startMin);
       next[dk] = day;
       return next;
     });
@@ -219,7 +551,6 @@ function ScheduleView({ selDate, tasksByDate, schedule, setSchedule }) {
     blocks.forEach(b => {
       const owner = (b.owner || "oloka").toLowerCase();
       const o = owner === "vanja" ? "vanja" : "oloka";
-      // Find a matching task or create a synthetic task ID
       const match = tasksToday.find(t => t.owner === o && t.text.toLowerCase().includes((b.task||"").toLowerCase().split(" ")[0]));
       if (match) {
         addBlock(o, match.id, b.startMin);
@@ -230,11 +561,43 @@ function ScheduleView({ selDate, tasksByDate, schedule, setSchedule }) {
 
   return (
     <div>
+      {/* ── Morning Plan bookend ── */}
+      <MorningPlanPanel dk={dk} dayNotes={dayNotes || {}} setDayNotes={setDayNotes} />
+
+      {/* ── AI Plan ── */}
       <AIPlanPanel dateKey={dk} onAddBlocks={onAddBlocks} />
-      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:10, marginBottom:18 }}>
+
+      {/* ── Controls row ── */}
+      <div style={{ display:"flex", alignItems:"center", flexWrap:"wrap", gap:10, marginBottom:14 }}>
         <p style={{ fontSize:12, color:T.muted, lineHeight:1.5, flex:1 }}>
-          Drag tasks into a timeline to block out the day. Drag the bottom edge of a block to resize. Click any block to edit it.
+          Drag tasks or break blocks into the timeline. Resize by dragging the bottom edge.
         </p>
+
+        {/* Planned / Actual toggle */}
+        <div style={{
+          display:"flex", alignItems:"center",
+          border:`1px solid ${T.border}`, borderRadius:6, overflow:"hidden",
+        }}>
+          <button
+            onClick={() => setActualMode(false)}
+            style={{
+              padding:"6px 14px", fontSize:10.5, fontWeight:800, letterSpacing:"0.08em",
+              border:"none", cursor:"pointer", fontFamily:"inherit",
+              background: !actualMode ? T.navy : T.surface,
+              color: !actualMode ? "#fff" : T.muted,
+            }}
+          >PLANNED</button>
+          <button
+            onClick={() => setActualMode(true)}
+            style={{
+              padding:"6px 14px", fontSize:10.5, fontWeight:800, letterSpacing:"0.08em",
+              border:"none", borderLeft:`1px solid ${T.border}`, cursor:"pointer", fontFamily:"inherit",
+              background: actualMode ? "#0E9F6E" : T.surface,
+              color: actualMode ? "#fff" : T.muted,
+            }}
+          >ACTUAL</button>
+        </div>
+
         <label style={{
           display:"inline-flex", alignItems:"center", gap:7,
           padding:"6px 12px", background: includeOther ? T.gold + "15" : T.surface,
@@ -245,12 +608,31 @@ function ScheduleView({ selDate, tasksByDate, schedule, setSchedule }) {
           <input type="checkbox" checked={includeOther} onChange={e => setIncludeOther(e.target.checked)}
             style={{ width:13, height:13, accentColor: T.gold, margin:0 }}
           />
-          INCLUDE TASKS FROM OTHER DAYS
+          OTHER DAYS
         </label>
       </div>
 
+      {/* ── Actual mode info banner ── */}
+      {actualMode && (
+        <div style={{
+          marginBottom:14, padding:"10px 14px",
+          background:"#0E9F6E12", border:`1px solid #0E9F6E44`,
+          borderLeft:`3px solid #0E9F6E`, borderRadius:6,
+          display:"flex", alignItems:"center", gap:10,
+        }}>
+          <span style={{ fontSize:14 }}>📍</span>
+          <div>
+            <p style={{ fontSize:11, fontWeight:800, color:"#0E9F6E", letterSpacing:"0.06em", marginBottom:2 }}>ACTUAL MODE</p>
+            <p style={{ fontSize:11, color:T.muted }}>
+              Drop blocks to record what you actually did. Planned blocks show as outlines behind. Solid blocks = reality.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ── Main layout ── */}
       <div style={{ display:"grid", gridTemplateColumns:"1fr 2fr", gap:24 }}>
-        {/* Left: unscheduled lists */}
+        {/* Left: task lists + break blocks */}
         <div>
           <UnscheduledColumn name="Vanja" owner="vanja" accent={T.vanja} accentSoft={T.vanjaSoft}
             todays={unscheduledForOwner("vanja").todays}
@@ -258,39 +640,57 @@ function ScheduleView({ selDate, tasksByDate, schedule, setSchedule }) {
             drag={drag} setDrag={setDrag}
             total={totalMins("vanja")}
           />
+
+          {/* Break blocks sit between the two user columns */}
+          <BreakBlockStrip drag={drag} setDrag={setDrag} />
+
           <UnscheduledColumn name="Oloka" owner="oloka" accent={T.oloka} accentSoft={T.olokaSoft}
             todays={unscheduledForOwner("oloka").todays}
             others={unscheduledForOwner("oloka").others}
             drag={drag} setDrag={setDrag}
             total={totalMins("oloka")}
-            style={{ marginTop:18 }}
           />
         </div>
 
         {/* Right: time grid */}
         <div style={{ display:"grid", gridTemplateColumns:"36px 1fr 1fr", gap:0, border:`1px solid ${T.border}`, borderRadius:8, background:T.cardBg }}>
-          {/* Hour gutter header */}
+          {/* Hour gutter */}
           <div style={{ borderRight:`1px solid ${T.border}`, background:T.surface }}>
             <div style={{ height:32, borderBottom:`1px solid ${T.border}` }}></div>
             <HourGutter />
           </div>
+
           <TimeColumn name="Vanja" owner="vanja" accent={T.vanja}
             blocks={daySchedule.vanja || []}
+            actualBlocks={dayActual.vanja || []}
+            actualMode={actualMode}
             tasksByDate={tasksByDate} dk={dk}
             drag={drag} setDrag={setDrag}
-            onAdd={addBlock} onRemove={removeBlock} onUpdate={updateBlock}
+            onAdd={addBlock} onAddBreak={addBreakBlock}
+            onRemove={removeBlock} onUpdate={updateBlock}
+            onAddActual={addActualBlock} onAddActualBreak={addActualBreakBlock}
+            onRemoveActual={removeActualBlock} onUpdateActual={updateActualBlock}
             onOpenEdit={(taskId) => setEditing({ owner:"vanja", taskId })}
           />
           <TimeColumn name="Oloka" owner="oloka" accent={T.oloka}
             blocks={daySchedule.oloka || []}
+            actualBlocks={dayActual.oloka || []}
+            actualMode={actualMode}
             tasksByDate={tasksByDate} dk={dk}
             drag={drag} setDrag={setDrag}
-            onAdd={addBlock} onRemove={removeBlock} onUpdate={updateBlock}
+            onAdd={addBlock} onAddBreak={addBreakBlock}
+            onRemove={removeBlock} onUpdate={updateBlock}
+            onAddActual={addActualBlock} onAddActualBreak={addActualBreakBlock}
+            onRemoveActual={removeActualBlock} onUpdateActual={updateActualBlock}
             onOpenEdit={(taskId) => setEditing({ owner:"oloka", taskId })}
           />
         </div>
       </div>
 
+      {/* ── Daily Review bookend ── */}
+      <DailyReviewPanel dk={dk} dayNotes={dayNotes || {}} setDayNotes={setDayNotes} />
+
+      {/* ── Event edit modal ── */}
       {editing && (() => {
         const block = (daySchedule[editing.owner] || []).find(b => b.taskId === editing.taskId);
         const task = tasksByIdRef[editing.taskId];
@@ -310,6 +710,9 @@ function ScheduleView({ selDate, tasksByDate, schedule, setSchedule }) {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// UnscheduledColumn
+// ─────────────────────────────────────────────────────────────────────────────
 function UnscheduledColumn({ name, owner, accent, accentSoft, todays, others, drag, setDrag, total, style }) {
   const todayD = today();
   const fmtRelDate = (iso) => {
@@ -389,6 +792,9 @@ function UnscheduledColumn({ name, owner, accent, accentSoft, todays, others, dr
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// HourGutter
+// ─────────────────────────────────────────────────────────────────────────────
 function HourGutter() {
   const hours = [];
   for (let h = SCHED_START; h <= SCHED_END; h++) hours.push(h);
@@ -413,7 +819,18 @@ function HourGutter() {
   );
 }
 
-function TimeColumn({ name, owner, accent, blocks, tasksByDate, dk, drag, setDrag, onAdd, onRemove, onUpdate, onOpenEdit }) {
+// ─────────────────────────────────────────────────────────────────────────────
+// TimeColumn — handles planned + actual blocks, task + break drops
+// ─────────────────────────────────────────────────────────────────────────────
+function TimeColumn({
+  name, owner, accent,
+  blocks, actualBlocks, actualMode,
+  tasksByDate, dk,
+  drag, setDrag,
+  onAdd, onAddBreak, onRemove, onUpdate,
+  onAddActual, onAddActualBreak, onRemoveActual, onUpdateActual,
+  onOpenEdit,
+}) {
   const colRef = useRh(null);
   const [hoverMin, setHoverMin] = useSh(null);
   const tasks = (tasksByDate[dk] || []);
@@ -423,7 +840,6 @@ function TimeColumn({ name, owner, accent, blocks, tasksByDate, dk, drag, setDra
 
   const yToMin = (y) => {
     const raw = Math.round(y / PX_PER_MIN);
-    // snap to slot
     const snapped = Math.round(raw / SLOT_MIN) * SLOT_MIN;
     return Math.max(0, Math.min((SCHED_END - SCHED_START) * 60 - SLOT_MIN, snapped));
   };
@@ -438,17 +854,34 @@ function TimeColumn({ name, owner, accent, blocks, tasksByDate, dk, drag, setDra
     setHoverMin(yToMin(y));
   };
   const handleDragLeave = () => setHoverMin(null);
+
   const handleDrop = (e) => {
     if (!drag) return;
     e.preventDefault();
     const rect = colRef.current.getBoundingClientRect();
     const y = e.clientY - rect.top;
     const startMin = (SCHED_START * 60) + yToMin(y);
-    // Remove from old owner column if cross-column move
-    if (drag.fromCol === "sched" && drag.fromOwner !== owner) onRemove(drag.fromOwner, drag.taskId);
-    onAdd(owner, drag.taskId, startMin);
+
+    if (drag.isBreak) {
+      // Drop a break block
+      if (actualMode) {
+        onAddActualBreak(owner, drag.breakLabel, startMin, drag.durationMin);
+      } else {
+        onAddBreak(owner, drag.breakLabel, startMin, drag.durationMin);
+      }
+    } else {
+      // Drop a task block
+      if (actualMode) {
+        onAddActual(owner, drag.taskId, startMin);
+      } else {
+        if (drag.fromCol === "sched" && drag.fromOwner !== owner) onRemove(drag.fromOwner, drag.taskId);
+        onAdd(owner, drag.taskId, startMin);
+      }
+    }
     setDrag(null); setHoverMin(null);
   };
+
+  const ghostDuration = drag?.isBreak ? drag.durationMin : 30;
 
   return (
     <div style={{
@@ -464,7 +897,7 @@ function TimeColumn({ name, owner, accent, blocks, tasksByDate, dk, drag, setDra
         borderBottom:`1px solid ${T.border}`,
       }}>{name.toUpperCase()}</div>
 
-      {/* Drop target / time grid */}
+      {/* Drop zone */}
       <div ref={colRef}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
@@ -472,46 +905,72 @@ function TimeColumn({ name, owner, accent, blocks, tasksByDate, dk, drag, setDra
         style={{
           position:"relative", height:colHeight,
           background:T.cardBg,
-          backgroundImage: `repeating-linear-gradient(to bottom, transparent, transparent ${60*PX_PER_MIN - 1}px, ${T.border} ${60*PX_PER_MIN - 1}px, ${T.border} ${60*PX_PER_MIN}px)`,
+          backgroundImage:`repeating-linear-gradient(to bottom, transparent, transparent ${60*PX_PER_MIN - 1}px, ${T.border} ${60*PX_PER_MIN - 1}px, ${T.border} ${60*PX_PER_MIN}px)`,
         }}>
         {/* Half-hour ticks */}
         <div style={{
           position:"absolute", inset:0, pointerEvents:"none",
-          backgroundImage: `repeating-linear-gradient(to bottom, transparent, transparent ${30*PX_PER_MIN - 0.5}px, ${T.surface} ${30*PX_PER_MIN - 0.5}px, ${T.surface} ${30*PX_PER_MIN}px)`,
+          backgroundImage:`repeating-linear-gradient(to bottom, transparent, transparent ${30*PX_PER_MIN - 0.5}px, ${T.surface} ${30*PX_PER_MIN - 0.5}px, ${T.surface} ${30*PX_PER_MIN}px)`,
         }}></div>
 
         {/* Ghost preview while dragging */}
         {drag && hoverMin !== null && (
           <div style={{
             position:"absolute", left:4, right:4,
-            top: minToY(hoverMin), height: 30 * PX_PER_MIN,
-            border:`2px dashed ${accent}`, borderRadius:4,
-            background: accent + "12",
+            top: minToY(hoverMin), height: ghostDuration * PX_PER_MIN,
+            border:`2px dashed ${actualMode ? "#0E9F6E" : accent}`, borderRadius:4,
+            background: (actualMode ? "#0E9F6E" : accent) + "12",
             pointerEvents:"none",
           }}>
-            <p style={{ fontSize:10, color:accent, fontWeight:800, padding:"3px 6px", letterSpacing:"0.05em" }}>
+            <p style={{ fontSize:10, color: actualMode ? "#0E9F6E" : accent, fontWeight:800, padding:"3px 6px", letterSpacing:"0.05em" }}>
               {fmtTime(SCHED_START*60 + hoverMin)}
+              {actualMode ? " · ACTUAL" : ""}
             </p>
           </div>
         )}
 
-        {/* Existing blocks */}
+        {/* ── Planned blocks ── */}
         {blocks.map(b => {
-          const task = taskById(b.taskId);
-          if (!task) return null;
+          const uid = blockUid(b);
+          const task = b.isBreak ? null : taskById(b.taskId);
+          if (!b.isBreak && !task) return null;
           const startOff = b.startMin - SCHED_START*60;
           const top = minToY(startOff);
           const height = Math.max(20, b.durationMin * PX_PER_MIN);
           return (
-            <ScheduleBlock key={b.taskId}
+            <ScheduleBlock key={uid}
               task={task} block={b} top={top} height={height} accent={accent}
               owner={owner}
-              onResize={(dur) => onUpdate(owner, b.taskId, { durationMin: dur })}
-              onMoveStart={(min) => onUpdate(owner, b.taskId, { startMin: min })}
-              onRemove={() => onRemove(owner, b.taskId)}
-              onOpen={() => onOpenEdit && onOpenEdit(b.taskId)}
-              onDragStart={() => setDrag({ taskId: b.taskId, fromOwner: owner, fromCol: "sched" })}
+              isGhost={actualMode}
+              onResize={(dur) => onUpdate(owner, b.taskId, { durationMin: dur }, b.breakId)}
+              onMoveStart={(min) => onUpdate(owner, b.taskId, { startMin: min }, b.breakId)}
+              onRemove={() => onRemove(owner, b.taskId, b.breakId)}
+              onOpen={() => !b.isBreak && onOpenEdit && onOpenEdit(b.taskId)}
+              onDragStart={() => setDrag({ taskId: b.taskId, breakId: b.breakId, isBreak: b.isBreak, breakLabel: b.breakLabel, durationMin: b.durationMin, fromOwner: owner, fromCol: "sched" })}
               onDragEnd={() => setDrag(null)}
+            />
+          );
+        })}
+
+        {/* ── Actual blocks (only in actualMode) ── */}
+        {actualMode && (actualBlocks || []).map(b => {
+          const uid = blockUid(b) + "_actual";
+          const task = b.isBreak ? null : taskById(b.taskId);
+          if (!b.isBreak && !task) return null;
+          const startOff = b.startMin - SCHED_START*60;
+          const top = minToY(startOff);
+          const height = Math.max(20, b.durationMin * PX_PER_MIN);
+          return (
+            <ScheduleBlock key={uid}
+              task={task} block={b} top={top} height={height} accent={accent}
+              owner={owner}
+              isActual={true}
+              onResize={(dur) => onUpdateActual(owner, b.taskId, { durationMin: dur }, b.breakId)}
+              onMoveStart={(min) => onUpdateActual(owner, b.taskId, { startMin: min }, b.breakId)}
+              onRemove={() => onRemoveActual(owner, b.taskId, b.breakId)}
+              onOpen={() => {}}
+              onDragStart={() => {}}
+              onDragEnd={() => {}}
             />
           );
         })}
@@ -520,7 +979,10 @@ function TimeColumn({ name, owner, accent, blocks, tasksByDate, dk, drag, setDra
   );
 }
 
-function ScheduleBlock({ task, block, top, height, accent, owner, onResize, onMoveStart, onRemove, onOpen, onDragStart, onDragEnd }) {
+// ─────────────────────────────────────────────────────────────────────────────
+// ScheduleBlock — renders a single block (task or break, planned or actual)
+// ─────────────────────────────────────────────────────────────────────────────
+function ScheduleBlock({ task, block, top, height, accent, owner, isGhost, isActual, onResize, onMoveStart, onRemove, onOpen, onDragStart, onDragEnd }) {
   const [resizing, setResizing] = useSh(false);
   const startY = useRh(0);
   const startDur = useRh(block.durationMin);
@@ -546,59 +1008,91 @@ function ScheduleBlock({ task, block, top, height, accent, owner, onResize, onMo
     window.addEventListener("mouseup", up);
   };
 
+  // Visual styling based on block type
+  const isBreak = block.isBreak;
+  const BREAK_COLORS = { "Lunch": "#0E9F6E", "Break": "#7C5DCA" };
+  const blockAccent = isBreak ? (BREAK_COLORS[block.breakLabel] || "#888") : accent;
+  const label = isBreak ? block.breakLabel : (block.title || task?.text || "");
+  const icon = isBreak ? (block.breakLabel === "Lunch" ? "🍽 " : "☕ ") : "";
+
+  const bgBase = isActual
+    ? blockAccent + "30"      // actual: more saturated fill
+    : isGhost
+      ? blockAccent + "08"    // planned ghost: very faint
+      : blockAccent + "18";   // planned normal: standard
+
+  const borderStyle = isGhost ? "dashed" : "solid";
+  const opacity = isGhost ? 0.45 : 1;
+
+  const bgPattern = isActual
+    ? `repeating-linear-gradient(45deg, transparent, transparent 4px, ${blockAccent}18 4px, ${blockAccent}18 8px), ${bgBase}`
+    : isBreak
+      ? `repeating-linear-gradient(135deg, transparent, transparent 3px, ${blockAccent}12 3px, ${blockAccent}12 6px), ${bgBase}`
+      : bgBase;
+
   return (
     <div
-      draggable={!resizing}
+      draggable={!resizing && !isActual}
       onDragStart={(e) => {
-        if (resizing) { e.preventDefault(); return; }
+        if (resizing || isActual) { e.preventDefault(); return; }
         onDragStart();
-        try { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", String(task.id)); } catch (_) {}
+        try { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", String(block.taskId || block.breakId)); } catch (_) {}
       }}
       onDragEnd={onDragEnd}
-      onClick={(e) => { if (resizing) return; e.stopPropagation(); onOpen && onOpen(); }}
+      onClick={(e) => { if (resizing || isBreak || isActual) return; e.stopPropagation(); onOpen && onOpen(); }}
       style={{
-        position:"absolute", left:4, right:4,
+        position:"absolute", left: isActual ? 6 : 4, right: isActual ? 6 : 4,
         top, height,
-        background: accent + "18",
-        border: `1px solid ${accent}55`,
-        borderLeft: `3px solid ${accent}`,
-        borderRadius: 4,
-        padding: "4px 7px",
-        cursor: resizing ? "ns-resize" : "grab",
+        background: bgPattern,
+        border:`${isActual ? 2 : 1}px ${borderStyle} ${blockAccent}${isGhost ? "44" : isActual ? "cc" : "55"}`,
+        borderLeft:`3px solid ${blockAccent}${isGhost ? "55" : ""}`,
+        borderRadius:4,
+        padding:"4px 7px",
+        cursor: isActual ? "default" : (resizing ? "ns-resize" : "grab"),
         overflow:"hidden",
         display:"flex", flexDirection:"column",
         userSelect:"none",
+        opacity,
+        zIndex: isActual ? 2 : 1,
+        transition:"opacity 0.15s",
       }}>
       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:4, marginBottom:2 }}>
-        <span style={{ fontSize:9, fontWeight:800, color:accent, letterSpacing:"0.06em" }}>
-          {fmtTime(block.startMin)} \u00B7 {block.durationMin}m
+        <span style={{ fontSize:9, fontWeight:800, color:blockAccent, letterSpacing:"0.06em", opacity: isGhost ? 0.7 : 1 }}>
+          {fmtTime(block.startMin)} · {block.durationMin}m
+          {isActual && <span style={{ marginLeft:4, background:blockAccent, color:"#fff", borderRadius:2, padding:"0 3px", fontSize:8 }}>ACTUAL</span>}
+          {isGhost && <span style={{ marginLeft:4, color:blockAccent, fontSize:8, opacity:0.7 }}>PLAN</span>}
         </span>
-        <button onClick={(e) => { e.stopPropagation(); onRemove(); }} title="Remove from schedule" style={{
-          width:14, height:14, background:"transparent", border:"none",
-          color:accent, opacity:0.6, cursor:"pointer", padding:0,
-          display:"flex", alignItems:"center", justifyContent:"center",
-          fontSize:13, lineHeight:1,
-        }}
-        onMouseEnter={e => e.currentTarget.style.opacity = "1"}
-        onMouseLeave={e => e.currentTarget.style.opacity = "0.6"}
-        >\u00D7</button>
+        {!isActual && (
+          <button onClick={(e) => { e.stopPropagation(); onRemove(); }} title="Remove" style={{
+            width:14, height:14, background:"transparent", border:"none",
+            color:blockAccent, opacity:0.6, cursor:"pointer", padding:0,
+            display:"flex", alignItems:"center", justifyContent:"center",
+            fontSize:13, lineHeight:1,
+          }}
+          onMouseEnter={e => e.currentTarget.style.opacity = "1"}
+          onMouseLeave={e => e.currentTarget.style.opacity = "0.6"}
+          >&times;</button>
+        )}
       </div>
       <p style={{
-        flex:1, fontSize:11, color:T.ink, fontWeight:600, lineHeight:1.25,
-        textDecoration: task.done ? "line-through" : "none",
+        flex:1, fontSize:11, color:isGhost ? T.muted : T.ink, fontWeight: isBreak ? 700 : 600,
+        lineHeight:1.25,
+        textDecoration: task?.done ? "line-through" : "none",
         overflow:"hidden",
         display:"-webkit-box",
         WebkitLineClamp: Math.max(1, Math.floor((height - 24) / 14)),
         WebkitBoxOrient:"vertical",
-      }}>{task.text}</p>
+      }}>{icon}{label}</p>
       {/* Resize handle */}
-      <div onMouseDown={beginResize} style={{
-        position:"absolute", left:0, right:0, bottom:0, height:6,
-        cursor:"ns-resize",
-        display:"flex", alignItems:"center", justifyContent:"center",
-      }}>
-        <div style={{ width:24, height:2, background:accent, borderRadius:1, opacity:0.5 }}></div>
-      </div>
+      {!isActual && (
+        <div onMouseDown={beginResize} style={{
+          position:"absolute", left:0, right:0, bottom:0, height:6,
+          cursor:"ns-resize",
+          display:"flex", alignItems:"center", justifyContent:"center",
+        }}>
+          <div style={{ width:24, height:2, background:blockAccent, borderRadius:1, opacity:0.5 }}></div>
+        </div>
+      )}
     </div>
   );
 }
@@ -616,7 +1110,6 @@ function EventModal({ block, task, owner, selDate, onSave, onDelete, onClose }) 
   const ownerColor = owner === "vanja" ? T.vanja : T.oloka;
   const ownerEmail = owner === "vanja" ? "vanja@prontohire.co.nz" : "oloka@prontohire.co.nz";
 
-  // Time picker as <input type="time">
   const toHHMM = (m) => `${String(Math.floor(m/60)).padStart(2,"0")}:${String(m%60).padStart(2,"0")}`;
   const fromHHMM = (s) => { const [h,m] = (s||"").split(":").map(Number); return (h||0)*60 + (m||0); };
 
@@ -632,7 +1125,6 @@ function EventModal({ block, task, owner, selDate, onSave, onDelete, onClose }) 
     });
   };
 
-  // .ics export — one-way "send to Outlook / Calendar"
   const downloadIcs = () => {
     const pad = n => String(n).padStart(2, "0");
     const dt = (date, minutes) => {
@@ -694,7 +1186,6 @@ function EventModal({ block, task, owner, selDate, onSave, onDelete, onClose }) 
         </div>
 
         <div style={{ padding:"18px 22px" }}>
-          {/* Title */}
           <label style={{ display:"block", fontSize:9.5, color:T.muted, fontWeight:800, letterSpacing:"0.12em", marginBottom:5 }}>TITLE</label>
           <input value={title} onChange={e => setTitle(e.target.value)}
             placeholder="Event title"
@@ -705,14 +1196,12 @@ function EventModal({ block, task, owner, selDate, onSave, onDelete, onClose }) 
             }}
           />
 
-          {/* Date (read-only) */}
           <label style={{ display:"block", fontSize:9.5, color:T.muted, fontWeight:800, letterSpacing:"0.12em", marginBottom:5 }}>DATE</label>
           <p style={{
             padding:"9px 12px", border:`1px solid ${T.border}`, borderRadius:5,
             fontSize:13, color:T.text, marginBottom:14, background:T.surface, fontWeight:500,
           }}>{dateLabel}</p>
 
-          {/* Time + Duration */}
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10, marginBottom:14 }}>
             <div>
               <label style={{ display:"block", fontSize:9.5, color:T.muted, fontWeight:800, letterSpacing:"0.12em", marginBottom:5 }}>START</label>
@@ -740,7 +1229,6 @@ function EventModal({ block, task, owner, selDate, onSave, onDelete, onClose }) 
             </div>
           </div>
 
-          {/* Location */}
           <label style={{ display:"block", fontSize:9.5, color:T.muted, fontWeight:800, letterSpacing:"0.12em", marginBottom:5 }}>LOCATION <span style={{ color:T.faint, fontWeight:600, letterSpacing:0 }}>(optional)</span></label>
           <input value={location} onChange={e => setLocation(e.target.value)}
             placeholder="Add a room or location"
@@ -750,7 +1238,6 @@ function EventModal({ block, task, owner, selDate, onSave, onDelete, onClose }) 
             }}
           />
 
-          {/* Notes */}
           <label style={{ display:"block", fontSize:9.5, color:T.muted, fontWeight:800, letterSpacing:"0.12em", marginBottom:5 }}>NOTES <span style={{ color:T.faint, fontWeight:600, letterSpacing:0 }}>(optional)</span></label>
           <textarea value={notes} onChange={e => setNotes(e.target.value)}
             rows={4} placeholder="Anything to remember about this block…"
@@ -761,7 +1248,6 @@ function EventModal({ block, task, owner, selDate, onSave, onDelete, onClose }) 
             }}
           />
 
-          {/* Calendar export */}
           <div style={{
             padding:"10px 12px", background:T.surface, border:`1px solid ${T.border}`, borderRadius:5,
             display:"flex", alignItems:"center", gap:10, justifyContent:"space-between",

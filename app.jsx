@@ -98,6 +98,10 @@ function App() {
   const [lunches, setLunches] = useS(() => loadOr("lunches", () => JSON.parse(JSON.stringify(LUNCHES))));
   // Schedule planner — date → { vanja: [{taskId,startMin,durationMin}], oloka: [...] }
   const [schedule, setSchedule] = useS(() => loadOr("schedule", () => ({})));
+  // Actual schedule — same shape; records what really happened vs planned
+  const [actualSchedule, setActualSchedule] = useS(() => loadOr("actualSchedule", () => ({})));
+  // Day notes — morning plan + daily review per date key
+  const [dayNotes, setDayNotes] = useS(() => loadOr("dayNotes", () => ({})));
   // Dismissed notifications: { [key]: true }
   const [notifDismissed, setNotifDismissed] = useS(() => loadOr("notifDismissed", () => ({})));
 
@@ -107,7 +111,7 @@ function App() {
     savedAt: new Date().toISOString(),
     tasksByDate, content,
     ideas, suppliers, budget, onboarding, courses, testimonials, photos,
-    plan, staff, lunches, schedule, notifDismissed, activityLog,
+    plan, staff, lunches, schedule, actualSchedule, dayNotes, notifDismissed, activityLog,
   });
 
   useE(() => { window.chatAs = chatAs; }, [chatAs]);
@@ -123,7 +127,7 @@ function App() {
     const state = fullState();
     try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch (_) {}
     if (syncRef.current) syncRef.current.scheduleWrite(state);
-  }, [tasksByDate, content, ideas, suppliers, budget, onboarding, courses, testimonials, photos, plan, staff, lunches, schedule, notifDismissed, activityLog]);
+  }, [tasksByDate, content, ideas, suppliers, budget, onboarding, courses, testimonials, photos, plan, staff, lunches, schedule, actualSchedule, dayNotes, notifDismissed, activityLog]);
 
   // ── Export current state to a JSON file download ──
   const exportState = () => {
@@ -188,6 +192,8 @@ function App() {
     if (s.staff) setStaff(s.staff);
     if (s.lunches) setLunches(s.lunches);
     if (s.schedule) setSchedule(s.schedule);
+    if (s.actualSchedule) setActualSchedule(s.actualSchedule);
+    if (s.dayNotes) setDayNotes(s.dayNotes);
     if (s.notifDismissed) setNotifDismissed(s.notifDismissed);
   };
 
@@ -590,7 +596,7 @@ function App() {
           <MonthView selDate={selDate} tasksByDate={tasksByDate} content={content} onPickDate={onPickDate} onMoveTask={onMoveTask}/>
         )}
         {tab === "schedule" && (
-          <ScheduleView selDate={selDate} tasksByDate={tasksByDate} schedule={schedule} setSchedule={setSchedule}/>
+          <ScheduleView selDate={selDate} tasksByDate={tasksByDate} schedule={schedule} setSchedule={setSchedule} dayNotes={dayNotes} setDayNotes={setDayNotes} actualSchedule={actualSchedule} setActualSchedule={setActualSchedule}/>
         )}
         {tab === "content" && <ContentCalendar selDate={selDate} content={content} onSetContent={setContent} view={contentView} setView={setContentView}/>}
         {tab === "plan" && <PlanView plan={plan} setPlan={setPlan}/>}
