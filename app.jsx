@@ -29,6 +29,7 @@ const TABS = [
   { key:"plan",    label:"PLAN 2026" },
   { key:"team",    label:"TEAM" },
   { key:"resources", label:"RESOURCES" },
+  { key:"activity", label:"ACTIVITY" },
 ];
 
 function App() {
@@ -50,6 +51,11 @@ function App() {
   const [todayUser, setTodayUser] = useS(() => {
     try { return localStorage.getItem("prontoHQ.todayUser") || null; } catch(_) { return null; }
   });
+  const [activityLog, setActivityLog] = useS(() => loadOr("activityLog", () => []));
+  const logActivity = (user, action, detail) => {
+    const entry = { user: user || todayUser || "unknown", action, detail, time: new Date().toISOString() };
+    setActivityLog(prev => [entry, ...prev].slice(0, 200));
+  };
   const [onlineUsers, setOnlineUsers] = useS([]);
   const [theme, setTheme] = useS(() => {
     try { return localStorage.getItem("prontoHQ.theme") || "light"; } catch(_) { return "light"; }
@@ -101,7 +107,7 @@ function App() {
     savedAt: new Date().toISOString(),
     tasksByDate, content,
     ideas, suppliers, budget, onboarding, courses, testimonials, photos,
-    plan, staff, lunches, schedule, notifDismissed,
+    plan, staff, lunches, schedule, notifDismissed, activityLog,
   });
 
   useE(() => { window.chatAs = chatAs; }, [chatAs]);
@@ -117,7 +123,7 @@ function App() {
     const state = fullState();
     try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch (_) {}
     if (syncRef.current) syncRef.current.scheduleWrite(state);
-  }, [tasksByDate, content, ideas, suppliers, budget, onboarding, courses, testimonials, photos, plan, staff, lunches, schedule, notifDismissed]);
+  }, [tasksByDate, content, ideas, suppliers, budget, onboarding, courses, testimonials, photos, plan, staff, lunches, schedule, notifDismissed, activityLog]);
 
   // ── Export current state to a JSON file download ──
   const exportState = () => {
@@ -194,7 +200,13 @@ function App() {
 
   const onToggle = (id) => setTasksByDate(prev => {
     const next = { ...prev };
-    for (const dk of Object.keys(next)) next[dk] = next[dk].map(t => t.id === id ? { ...t, done: !t.done } : t);
+    let taskText = "";
+    let wasDone = false;
+    for (const dk of Object.keys(next)) next[dk] = next[dk].map(t => {
+      if (t.id === id) { taskText = t.text; wasDone = t.done; return { ...t, done: !t.done }; }
+      return t;
+    });
+    logActivity(todayUser, wasDone ? "unchecked" : "completed", taskText);
     return next;
   });
   const onChangePriority = (id, priority) => setTasksByDate(prev => {
@@ -217,11 +229,14 @@ function App() {
     for (const dk of Object.keys(next)) next[dk] = next[dk].map(t => t.id === id ? { ...t, category } : t);
     return next;
   });
-  const onAdd = (dateKey, data) => setTasksByDate(prev => {
-    const arr = prev[dateKey] || [];
-    const id = Math.max(0, ...Object.values(prev).flat().map(t => t.id)) + 1;
-    return { ...prev, [dateKey]: [...arr, { ...data, id }] };
-  });
+  const onAdd = (dateKey, data) => {
+    logActivity(todayUser, "added task", data.text || "New task");
+    setTasksByDate(prev => {
+      const arr = prev[dateKey] || [];
+      const id = Math.max(0, ...Object.values(prev).flat().map(t => t.id)) + 1;
+      return { ...prev, [dateKey]: [...arr, { ...data, id }] };
+    });
+  };
   const onChangeSubtasks = (id, subtasks) => setTasksByDate(prev => {
     const next = { ...prev };
     for (const dk of Object.keys(next)) next[dk] = next[dk].map(t => t.id === id ? { ...t, subtasks } : t);
@@ -409,12 +424,12 @@ function App() {
       }}>
         <div style={{ display:"flex", alignItems:"center", gap:18 }}>
           <img src="assets/logo-horizontal.jpg" alt="Pronto Hire"
-            style={{ height:38, width:"auto", display:"block" }}
+            style={{ height:48, width:"auto", display:"block", objectFit:"contain" }}
           />
           <div style={{ height:30, width:1, background:T.border }}></div>
           <div>
-            <p style={{ fontFamily:"'ProximaNova Black', sans-serif", fontWeight:900, fontSize:19, letterSpacing:"0.02em", color:T.heading, lineHeight:1 }}>HQ</p>
-            <p style={{ color:T.muted, fontSize:9.5, letterSpacing:"0.16em", fontWeight:700, marginTop:3 }}>MARKETING OPS</p>
+            <p style={{ fontFamily:"'ProximaNova Black', sans-serif", fontWeight:900, fontSize:19, letterSpacing:"0.02em", color:T.heading, lineHeight:1 }}>PRONTO</p>
+            <p style={{ color:T.muted, fontSize:9.5, letterSpacing:"0.16em", fontWeight:700, marginTop:3 }}>PRODUCTIVE</p>
           </div>
         </div>
         <div style={{ display:"flex", alignItems:"center", gap:14, flexWrap:"wrap" }}>
@@ -490,14 +505,6 @@ function App() {
             </svg>
             IMPORT
           </button>
-          <button onClick={resetState} title="Reset all data to the original spreadsheet" style={{
-            padding:"7px 12px", background:"transparent", border:`1px solid ${T.border}`,
-            borderRadius:6, color:T.muted, fontSize:11, fontWeight:700,
-            cursor:"pointer", fontFamily:"inherit", letterSpacing:"0.06em",
-          }}
-          onMouseEnter={e => { e.currentTarget.style.borderColor = T.urgent; e.currentTarget.style.color = T.urgent; }}
-          onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.muted; }}
-          >RESET</button>
           <div style={{ height:18, width:1, background:T.border }}></div>
           <button onClick={goToday} title="Jump to today" style={{
             padding:"7px 14px", background:T.surface, border:`1px solid ${T.border}`,
@@ -597,9 +604,85 @@ function App() {
           testimonials={testimonials} setTestimonials={setTestimonials}
           photos={photos} setPhotos={setPhotos}
           onAddToTasks={onAdd}
-
         />}
+        {tab === "activity" && <ActivityView log={activityLog} onClear={() => setActivityLog([])}/>}
       </main>
+    </div>
+  );
+}
+
+function ActivityView({ log, onClear }) {
+  const USERS = { vanja: { name:"Vanja", color:T.vanja }, oloka: { name:"Oloka", color:T.oloka } };
+  const ACTION_ICONS = { completed:"✅", unchecked:"⬜", "added task":"➕" };
+
+  const fmt = (iso) => {
+    const d = new Date(iso);
+    const now = new Date();
+    const diff = Math.floor((now - d) / 1000);
+    if (diff < 60) return "just now";
+    if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
+    return d.toLocaleDateString("en-NZ", { day:"numeric", month:"short" }) + " · " + d.toLocaleTimeString("en-NZ", { hour:"2-digit", minute:"2-digit" });
+  };
+
+  return (
+    <div>
+      <div style={{ marginBottom:24 }}>
+        <p style={{ color:T.gold, fontSize:10, letterSpacing:"0.18em", fontWeight:800, marginBottom:8 }}>TEAM ACTIVITY</p>
+        <h1 style={{ fontFamily:"'ProximaNova Black', sans-serif", fontWeight:900, fontSize:50, letterSpacing:"-0.025em", lineHeight:0.92, color:T.heading }}>ACTIVITY</h1>
+        <p style={{ color:T.muted, fontSize:13.5, marginTop:8 }}>Everything your team has done — tasks completed, added and changed.</p>
+      </div>
+
+      {log.length > 0 && (
+        <div style={{ marginBottom:18, display:"flex", justifyContent:"flex-end" }}>
+          <button onClick={() => { if(confirm("Clear all activity history?")) onClear(); }} style={{
+            background:"transparent", border:`1px solid ${T.border}`, borderRadius:5,
+            color:T.muted, fontSize:11, fontWeight:700, padding:"6px 12px", cursor:"pointer", fontFamily:"inherit",
+          }}>Clear history</button>
+        </div>
+      )}
+
+      {log.length === 0 ? (
+        <div style={{ textAlign:"center", padding:"60px 24px", color:T.muted }}>
+          <p style={{ fontSize:40, marginBottom:12 }}>📋</p>
+          <p style={{ fontSize:15, fontWeight:700, color:T.ink, marginBottom:6 }}>No activity yet</p>
+          <p style={{ fontSize:13 }}>Start ticking off tasks and they'll appear here!</p>
+        </div>
+      ) : (
+        <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+          {log.map((entry, i) => {
+            const u = USERS[entry.user] || { name: entry.user, color: T.muted };
+            const icon = ACTION_ICONS[entry.action] || "•";
+            return (
+              <div key={i} style={{
+                background:T.cardBg, border:`1px solid ${T.border}`,
+                borderLeft:`3px solid ${u.color}`,
+                borderRadius:8, padding:"12px 16px",
+                display:"flex", alignItems:"center", gap:14,
+              }}>
+                <div style={{
+                  width:34, height:34, borderRadius:"50%", background:u.color,
+                  display:"flex", alignItems:"center", justifyContent:"center",
+                  color:"#fff", fontSize:12, fontWeight:800, flexShrink:0,
+                }}>{u.name[0]}</div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                    <span style={{ fontSize:12, fontWeight:800, color:u.color }}>{u.name}</span>
+                    <span style={{ fontSize:12, color:T.muted }}>{entry.action}</span>
+                    <span style={{ fontSize:13 }}>{icon}</span>
+                  </div>
+                  {entry.detail && (
+                    <p style={{ fontSize:13, color:T.ink, fontWeight:500, marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                      {entry.detail}
+                    </p>
+                  )}
+                </div>
+                <span style={{ fontSize:11, color:T.faint, flexShrink:0, whiteSpace:"nowrap" }}>{fmt(entry.time)}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -607,8 +690,12 @@ function App() {
 function PasswordGate({ children }) {
   const PW = "Pigment@14523";
   const KEY = "prontoHQ.auth";
+  const USER_KEY = "prontoHQ.todayUser";
   const [unlocked, setUnlocked] = useS(() => {
     try { return localStorage.getItem(KEY) === PW; } catch(_) { return false; }
+  });
+  const [userPicked, setUserPicked] = useS(() => {
+    try { return !!localStorage.getItem(USER_KEY); } catch(_) { return false; }
   });
   const [input, setInput] = useS("");
   const [shake, setShake] = useS(false);
@@ -625,6 +712,49 @@ function PasswordGate({ children }) {
     }
   }
 
+  function pickUser(u) {
+    try { localStorage.setItem(USER_KEY, u); } catch(_) {}
+    setUserPicked(true);
+  }
+
+  if (unlocked && !userPicked) return (
+    <div style={{
+      minHeight:"100vh", background:"#071536",
+      display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:32,
+    }}>
+      <div style={{ textAlign:"center" }}>
+        <img src="assets/pronto-icon.png" style={{ width:52, marginBottom:16, opacity:0.95 }} onError={e => e.target.style.display='none'} />
+        <p style={{ color:"#FFC030", fontSize:10, letterSpacing:"0.2em", fontWeight:800, marginBottom:6 }}>PRONTO HIRE</p>
+        <h1 style={{ fontFamily:"'ProximaNova Black', sans-serif", fontWeight:900, fontSize:32, color:"#FFFFFF", marginBottom:6 }}>WHO'S WORKING TODAY?</h1>
+        <p style={{ color:"#7A9AC8", fontSize:13 }}>Select your account to get started</p>
+      </div>
+      <div style={{ display:"flex", gap:20 }}>
+        {[
+          { key:"vanja", name:"Vanja", color:"#B57BFF" },
+          { key:"oloka", name:"Oloka", color:"#00C2A8" },
+        ].map(u => (
+          <button key={u.key} onClick={() => pickUser(u.key)} style={{
+            width:160, padding:"28px 20px", borderRadius:14,
+            background:"#0D1F45", border:`2px solid ${u.color}33`,
+            cursor:"pointer", fontFamily:"inherit", transition:"all 0.2s",
+            display:"flex", flexDirection:"column", alignItems:"center", gap:14,
+          }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = u.color; e.currentTarget.style.background = u.color + "22"; }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = u.color + "33"; e.currentTarget.style.background = "#0D1F45"; }}
+          >
+            <div style={{
+              width:64, height:64, borderRadius:"50%", background:u.color,
+              display:"flex", alignItems:"center", justifyContent:"center",
+              fontSize:26, fontWeight:900, color:"#fff",
+              fontFamily:"'ProximaNova Black', sans-serif",
+            }}>{u.name[0]}</div>
+            <span style={{ fontSize:16, fontWeight:800, color:"#fff", letterSpacing:"0.04em" }}>{u.name}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
   if (unlocked) return children;
 
   return (
@@ -635,8 +765,8 @@ function PasswordGate({ children }) {
       <div style={{ textAlign:"center", padding:"0 24px", width:"100%", maxWidth:380 }}>
         <img src="assets/pronto-icon.png" style={{ width:52, marginBottom:20, opacity:0.95 }} onError={e => e.target.style.display='none'} />
         <p style={{ color:"#FFC030", fontSize:10, letterSpacing:"0.2em", fontWeight:800, marginBottom:10 }}>PRONTO HIRE</p>
-        <h1 style={{ fontFamily:"'ProximaNova Black', sans-serif", fontWeight:900, fontSize:36, color:"#FFFFFF", letterSpacing:"-0.02em", marginBottom:6, lineHeight:1 }}>HQ</h1>
-        <p style={{ color:"#7A9AC8", fontSize:13, marginBottom:32 }}>Marketing Ops · Team access only</p>
+        <h1 style={{ fontFamily:"'ProximaNova Black', sans-serif", fontWeight:900, fontSize:36, color:"#FFFFFF", letterSpacing:"-0.02em", marginBottom:6, lineHeight:1 }}>PRONTO PRODUCTIVE</h1>
+        <p style={{ color:"#7A9AC8", fontSize:13, marginBottom:32 }}>Team access only</p>
         <div style={{
           display:"flex", gap:0, border:`2px solid ${shake ? "#FF6055" : "#1E3A78"}`,
           borderRadius:10, overflow:"hidden", transition:"border-color 0.2s",
