@@ -14,10 +14,11 @@ function fmtTime(totalMin) {
   return m === 0 ? `${h12}${ampm}` : `${h12}:${String(m).padStart(2,"0")}${ampm}`;
 }
 
-// Unique ID for break blocks
+// Unique IDs
 const newBreakId = () => `__brk_${Date.now()}_${Math.random().toString(36).slice(2,6)}`;
-// Canonical key for any block (break or task)
-const blockUid = (b) => b.isBreak ? b.breakId : String(b.taskId);
+const newQeId   = () => `__qe_${Date.now()}_${Math.random().toString(36).slice(2,6)}`;
+// Canonical key for any block
+const blockUid = (b) => b.isBreak ? b.breakId : b.isQuickEvent ? b.qeId : String(b.taskId);
 
 const AI_KEY_LS = "prontoHQ.aiKey";
 
@@ -397,6 +398,8 @@ function ScheduleView({ selDate, tasksByDate, schedule, setSchedule, dayNotes, s
   const dayActual   = ((actualSchedule || {})[dk]) || { vanja: [], oloka: [] };
 
   const [actualMode, setActualMode] = useSh(false);
+  const [activeUser, setActiveUser] = useSh("both"); // "vanja" | "both" | "oloka"
+  const [quickAdd, setQuickAdd] = useSh(null); // { owner, startMin, isActual }
   const [editing, setEditing] = useSh(null);
   const [includeOther, setIncludeOther] = useSh(false);
   const [drag, setDrag] = useSh(null);
@@ -545,6 +548,30 @@ function ScheduleView({ selDate, tasksByDate, schedule, setSchedule, dayNotes, s
     });
   };
 
+  // ── Quick-event blocks (standalone, no linked task) ──
+  const addQuickEvent = (owner, qeTitle, startMin, durationMin) => {
+    setSchedule(prev => {
+      const next = { ...prev };
+      const day = { ...(next[dk] || { vanja:[], oloka:[] }) };
+      const qeId = newQeId();
+      day[owner] = [...(day[owner] || []), { qeId, isQuickEvent:true, qeTitle, startMin, durationMin }];
+      day[owner].sort((a,b) => a.startMin - b.startMin);
+      next[dk] = day;
+      return next;
+    });
+  };
+  const addActualQuickEvent = (owner, qeTitle, startMin, durationMin) => {
+    setActualSchedule(prev => {
+      const next = { ...(prev || {}) };
+      const day = { ...(next[dk] || { vanja:[], oloka:[] }) };
+      const qeId = newQeId();
+      day[owner] = [...(day[owner] || []), { qeId, isQuickEvent:true, qeTitle, startMin, durationMin }];
+      day[owner].sort((a,b) => a.startMin - b.startMin);
+      next[dk] = day;
+      return next;
+    });
+  };
+
   const totalMins = (owner) => (daySchedule[owner] || []).reduce((s, b) => s + b.durationMin, 0);
 
   const onAddBlocks = (blocks) => {
@@ -568,127 +595,189 @@ function ScheduleView({ selDate, tasksByDate, schedule, setSchedule, dayNotes, s
       <AIPlanPanel dateKey={dk} onAddBlocks={onAddBlocks} />
 
       {/* ── Controls row ── */}
-      <div style={{ display:"flex", alignItems:"center", flexWrap:"wrap", gap:10, marginBottom:14 }}>
-        <p style={{ fontSize:12, color:T.muted, lineHeight:1.5, flex:1 }}>
-          Drag tasks or break blocks into the timeline. Resize by dragging the bottom edge.
+      <div style={{ display:"flex", alignItems:"center", flexWrap:"wrap", gap:8, marginBottom:14 }}>
+        <p style={{ fontSize:11.5, color:T.muted, lineHeight:1.5, flex:1, minWidth:160 }}>
+          Drag tasks or break blocks into the timeline. Click empty space to add a block.
         </p>
 
+        {/* Who am I viewing */}
+        <div style={{ display:"flex", border:`1px solid ${T.border}`, borderRadius:6, overflow:"hidden" }}>
+          {[
+            { key:"vanja", label:"VANJA", color:T.vanja },
+            { key:"both",  label:"BOTH",  color:T.navy  },
+            { key:"oloka", label:"OLOKA", color:T.oloka },
+          ].map(({ key, label, color }, i) => (
+            <button key={key} onClick={() => setActiveUser(key)} style={{
+              padding:"6px 11px", fontSize:10, fontWeight:800, letterSpacing:"0.08em",
+              border:"none", borderLeft: i > 0 ? `1px solid ${T.border}` : "none",
+              cursor:"pointer", fontFamily:"inherit",
+              background: activeUser === key ? color : T.surface,
+              color: activeUser === key ? "#fff" : T.muted,
+              transition:"all 0.15s",
+            }}>{label}</button>
+          ))}
+        </div>
+
         {/* Planned / Actual toggle */}
-        <div style={{
-          display:"flex", alignItems:"center",
-          border:`1px solid ${T.border}`, borderRadius:6, overflow:"hidden",
-        }}>
-          <button
-            onClick={() => setActualMode(false)}
-            style={{
-              padding:"6px 14px", fontSize:10.5, fontWeight:800, letterSpacing:"0.08em",
-              border:"none", cursor:"pointer", fontFamily:"inherit",
-              background: !actualMode ? T.navy : T.surface,
-              color: !actualMode ? "#fff" : T.muted,
-            }}
-          >PLANNED</button>
-          <button
-            onClick={() => setActualMode(true)}
-            style={{
-              padding:"6px 14px", fontSize:10.5, fontWeight:800, letterSpacing:"0.08em",
-              border:"none", borderLeft:`1px solid ${T.border}`, cursor:"pointer", fontFamily:"inherit",
-              background: actualMode ? "#0E9F6E" : T.surface,
-              color: actualMode ? "#fff" : T.muted,
-            }}
-          >ACTUAL</button>
+        <div style={{ display:"flex", border:`1px solid ${T.border}`, borderRadius:6, overflow:"hidden" }}>
+          <button onClick={() => setActualMode(false)} style={{
+            padding:"6px 12px", fontSize:10, fontWeight:800, letterSpacing:"0.08em",
+            border:"none", cursor:"pointer", fontFamily:"inherit",
+            background: !actualMode ? T.navy : T.surface,
+            color: !actualMode ? "#fff" : T.muted,
+          }}>PLANNED</button>
+          <button onClick={() => setActualMode(true)} style={{
+            padding:"6px 12px", fontSize:10, fontWeight:800, letterSpacing:"0.08em",
+            border:"none", borderLeft:`1px solid ${T.border}`, cursor:"pointer", fontFamily:"inherit",
+            background: actualMode ? "#0E9F6E" : T.surface,
+            color: actualMode ? "#fff" : T.muted,
+          }}>ACTUAL</button>
         </div>
 
         <label style={{
-          display:"inline-flex", alignItems:"center", gap:7,
-          padding:"6px 12px", background: includeOther ? T.gold + "15" : T.surface,
+          display:"inline-flex", alignItems:"center", gap:6,
+          padding:"6px 10px", background: includeOther ? T.gold + "15" : T.surface,
           border:`1px solid ${includeOther ? T.gold : T.border}`, borderRadius:6,
-          cursor:"pointer", fontSize:11, fontWeight:700,
+          cursor:"pointer", fontSize:10, fontWeight:700,
           color: includeOther ? T.gold : T.text, letterSpacing:"0.04em",
         }}>
           <input type="checkbox" checked={includeOther} onChange={e => setIncludeOther(e.target.checked)}
-            style={{ width:13, height:13, accentColor: T.gold, margin:0 }}
+            style={{ width:12, height:12, accentColor: T.gold, margin:0 }}
           />
           OTHER DAYS
         </label>
       </div>
 
-      {/* ── Actual mode info banner ── */}
+      {/* ── Actual mode banner ── */}
       {actualMode && (
         <div style={{
-          marginBottom:14, padding:"10px 14px",
+          marginBottom:12, padding:"9px 14px",
           background:"#0E9F6E12", border:`1px solid #0E9F6E44`,
           borderLeft:`3px solid #0E9F6E`, borderRadius:6,
           display:"flex", alignItems:"center", gap:10,
         }}>
-          <span style={{ fontSize:14 }}>📍</span>
-          <div>
-            <p style={{ fontSize:11, fontWeight:800, color:"#0E9F6E", letterSpacing:"0.06em", marginBottom:2 }}>ACTUAL MODE</p>
-            <p style={{ fontSize:11, color:T.muted }}>
-              Drop blocks to record what you actually did. Planned blocks show as outlines behind. Solid blocks = reality.
-            </p>
-          </div>
+          <span style={{ fontSize:13 }}>📍</span>
+          <p style={{ fontSize:11, color:T.muted }}>
+            <strong style={{ color:"#0E9F6E" }}>ACTUAL MODE</strong>
+            {activeUser !== "both"
+              ? " — PLANNED and ACTUAL shown side by side. Drop blocks on the right to record what really happened."
+              : " — planned blocks show as outlines. Drop blocks on top to record what really happened."}
+          </p>
         </div>
       )}
 
       {/* ── Main layout ── */}
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 2fr", gap:24 }}>
-        {/* Left: task lists + break blocks */}
-        <div>
-          <UnscheduledColumn name="Vanja" owner="vanja" accent={T.vanja} accentSoft={T.vanjaSoft}
-            todays={unscheduledForOwner("vanja").todays}
-            others={unscheduledForOwner("vanja").others}
-            drag={drag} setDrag={setDrag}
-            total={totalMins("vanja")}
-          />
+      {(() => {
+        const showSideBySide = actualMode && activeUser !== "both";
 
-          {/* Break blocks sit between the two user columns */}
-          <BreakBlockStrip drag={drag} setDrag={setDrag} />
+        const makeTimeCol = (owner, nameOverride, accentOverride, blocksArr, actualBlocksArr, useActualMode, isActualCol) => {
+          const name   = nameOverride || (owner === "vanja" ? "Vanja" : "Oloka");
+          const accent = accentOverride || (owner === "vanja" ? T.vanja : T.oloka);
+          const addFn       = isActualCol ? addActualBlock      : addBlock;
+          const addBreakFn  = isActualCol ? addActualBreakBlock : addBreakBlock;
+          const removeFn    = isActualCol ? removeActualBlock   : removeBlock;
+          const updateFn    = isActualCol ? updateActualBlock   : updateBlock;
+          return (
+            <TimeColumn key={(isActualCol ? "actual_" : "planned_") + owner}
+              name={name} owner={owner} accent={accent}
+              blocks={blocksArr}
+              actualBlocks={actualBlocksArr}
+              actualMode={useActualMode}
+              isActualColumn={isActualCol}
+              tasksByDate={tasksByDate} dk={dk}
+              drag={drag} setDrag={setDrag}
+              onAdd={addFn} onAddBreak={addBreakFn}
+              onRemove={removeFn} onUpdate={updateFn}
+              onAddActual={addActualBlock} onAddActualBreak={addActualBreakBlock}
+              onRemoveActual={removeActualBlock} onUpdateActual={updateActualBlock}
+              onOpenEdit={(taskId) => !isActualCol && setEditing({ owner, taskId })}
+              onClickEmpty={(startMin) => setQuickAdd({ owner, startMin, isActual: !!isActualCol })}
+            />
+          );
+        };
 
-          <UnscheduledColumn name="Oloka" owner="oloka" accent={T.oloka} accentSoft={T.olokaSoft}
-            todays={unscheduledForOwner("oloka").todays}
-            others={unscheduledForOwner("oloka").others}
-            drag={drag} setDrag={setDrag}
-            total={totalMins("oloka")}
-          />
-        </div>
+        // Grid column widths
+        const gridCols = (activeUser === "both" || showSideBySide) ? "36px 1fr 1fr" : "36px 1fr";
 
-        {/* Right: time grid */}
-        <div style={{ display:"grid", gridTemplateColumns:"36px 1fr 1fr", gap:0, border:`1px solid ${T.border}`, borderRadius:8, background:T.cardBg }}>
-          {/* Hour gutter */}
-          <div style={{ borderRight:`1px solid ${T.border}`, background:T.surface }}>
-            <div style={{ height:32, borderBottom:`1px solid ${T.border}` }}></div>
-            <HourGutter />
+        return (
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 2fr", gap:24 }}>
+            {/* Left sidebar */}
+            <div>
+              {(activeUser === "both" || activeUser === "vanja") && (
+                <UnscheduledColumn name="Vanja" owner="vanja" accent={T.vanja} accentSoft={T.vanjaSoft}
+                  todays={unscheduledForOwner("vanja").todays}
+                  others={unscheduledForOwner("vanja").others}
+                  drag={drag} setDrag={setDrag}
+                  total={totalMins("vanja")}
+                />
+              )}
+              <BreakBlockStrip drag={drag} setDrag={setDrag} />
+              {(activeUser === "both" || activeUser === "oloka") && (
+                <UnscheduledColumn name="Oloka" owner="oloka" accent={T.oloka} accentSoft={T.olokaSoft}
+                  todays={unscheduledForOwner("oloka").todays}
+                  others={unscheduledForOwner("oloka").others}
+                  drag={drag} setDrag={setDrag}
+                  total={totalMins("oloka")}
+                />
+              )}
+            </div>
+
+            {/* Right: time grid */}
+            <div style={{ display:"grid", gridTemplateColumns:gridCols, gap:0, border:`1px solid ${T.border}`, borderRadius:8, background:T.cardBg, alignSelf:"start" }}>
+              <div style={{ borderRight:`1px solid ${T.border}`, background:T.surface }}>
+                <div style={{ height:32, borderBottom:`1px solid ${T.border}` }}></div>
+                <HourGutter />
+              </div>
+
+              {showSideBySide ? (
+                // Single user: side-by-side PLANNED | ACTUAL
+                <>
+                  {makeTimeCol(activeUser, "PLANNED", activeUser === "vanja" ? T.vanja : T.oloka,
+                    daySchedule[activeUser] || [], [], false, false)}
+                  {makeTimeCol(activeUser, "ACTUAL", "#0E9F6E",
+                    dayActual[activeUser] || [], [], false, true)}
+                </>
+              ) : activeUser === "both" ? (
+                // Both users overlaid
+                <>
+                  {makeTimeCol("vanja", null, null, daySchedule.vanja || [], dayActual.vanja || [], actualMode, false)}
+                  {makeTimeCol("oloka", null, null, daySchedule.oloka || [], dayActual.oloka || [], actualMode, false)}
+                </>
+              ) : (
+                // Single user full-width, planned mode
+                makeTimeCol(activeUser, null, null, daySchedule[activeUser] || [], dayActual[activeUser] || [], false, false)
+              )}
+            </div>
           </div>
-
-          <TimeColumn name="Vanja" owner="vanja" accent={T.vanja}
-            blocks={daySchedule.vanja || []}
-            actualBlocks={dayActual.vanja || []}
-            actualMode={actualMode}
-            tasksByDate={tasksByDate} dk={dk}
-            drag={drag} setDrag={setDrag}
-            onAdd={addBlock} onAddBreak={addBreakBlock}
-            onRemove={removeBlock} onUpdate={updateBlock}
-            onAddActual={addActualBlock} onAddActualBreak={addActualBreakBlock}
-            onRemoveActual={removeActualBlock} onUpdateActual={updateActualBlock}
-            onOpenEdit={(taskId) => setEditing({ owner:"vanja", taskId })}
-          />
-          <TimeColumn name="Oloka" owner="oloka" accent={T.oloka}
-            blocks={daySchedule.oloka || []}
-            actualBlocks={dayActual.oloka || []}
-            actualMode={actualMode}
-            tasksByDate={tasksByDate} dk={dk}
-            drag={drag} setDrag={setDrag}
-            onAdd={addBlock} onAddBreak={addBreakBlock}
-            onRemove={removeBlock} onUpdate={updateBlock}
-            onAddActual={addActualBlock} onAddActualBreak={addActualBreakBlock}
-            onRemoveActual={removeActualBlock} onUpdateActual={updateActualBlock}
-            onOpenEdit={(taskId) => setEditing({ owner:"oloka", taskId })}
-          />
-        </div>
-      </div>
+        );
+      })()}
 
       {/* ── Daily Review bookend ── */}
       <DailyReviewPanel dk={dk} dayNotes={dayNotes || {}} setDayNotes={setDayNotes} />
+
+      {/* ── Quick-add popover ── */}
+      {quickAdd && (
+        <QuickAddPopover
+          owner={quickAdd.owner}
+          startMin={quickAdd.startMin}
+          isActual={quickAdd.isActual}
+          tasks={(tasksByDate[dk] || []).filter(t => t.owner === quickAdd.owner && !t.done)}
+          onConfirm={({ title, taskId, durationMin }) => {
+            const o = quickAdd.owner;
+            const sm = quickAdd.startMin;
+            const dm = durationMin || 30;
+            if (taskId) {
+              if (quickAdd.isActual) { addActualBlock(o, taskId, sm); updateActualBlock(o, taskId, { durationMin: dm }); }
+              else                   { addBlock(o, taskId, sm);       updateBlock(o, taskId, { durationMin: dm }); }
+            } else if (title) {
+              if (quickAdd.isActual) addActualQuickEvent(o, title, sm, dm);
+              else                   addQuickEvent(o, title, sm, dm);
+            }
+            setQuickAdd(null);
+          }}
+          onClose={() => setQuickAdd(null)}
+        />
+      )}
 
       {/* ── Event edit modal ── */}
       {editing && (() => {
@@ -825,11 +914,12 @@ function HourGutter() {
 function TimeColumn({
   name, owner, accent,
   blocks, actualBlocks, actualMode,
+  isActualColumn,
   tasksByDate, dk,
   drag, setDrag,
   onAdd, onAddBreak, onRemove, onUpdate,
   onAddActual, onAddActualBreak, onRemoveActual, onUpdateActual,
-  onOpenEdit,
+  onOpenEdit, onClickEmpty,
 }) {
   const colRef = useRh(null);
   const [hoverMin, setHoverMin] = useSh(null);
@@ -902,6 +992,13 @@ function TimeColumn({
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
+        onClick={(e) => {
+          if (drag) return;
+          if (e.target !== e.currentTarget) return; // only fire on bg, not blocks
+          const rect = colRef.current.getBoundingClientRect();
+          const y = e.clientY - rect.top;
+          onClickEmpty && onClickEmpty((SCHED_START * 60) + yToMin(y));
+        }}
         style={{
           position:"relative", height:colHeight,
           background:T.cardBg,
@@ -932,8 +1029,8 @@ function TimeColumn({
         {/* ── Planned blocks ── */}
         {blocks.map(b => {
           const uid = blockUid(b);
-          const task = b.isBreak ? null : taskById(b.taskId);
-          if (!b.isBreak && !task) return null;
+          const task = b.isBreak ? null : b.isQuickEvent ? null : taskById(b.taskId);
+          if (!b.isBreak && !b.isQuickEvent && !task) return null;
           const startOff = b.startMin - SCHED_START*60;
           const top = minToY(startOff);
           const height = Math.max(20, b.durationMin * PX_PER_MIN);
@@ -952,11 +1049,11 @@ function TimeColumn({
           );
         })}
 
-        {/* ── Actual blocks (only in actualMode) ── */}
-        {actualMode && (actualBlocks || []).map(b => {
+        {/* ── Actual blocks (overlaid in actualMode, or always shown in actual column) ── */}
+        {(actualMode || isActualColumn) && (actualBlocks || []).map(b => {
           const uid = blockUid(b) + "_actual";
-          const task = b.isBreak ? null : taskById(b.taskId);
-          if (!b.isBreak && !task) return null;
+          const task = b.isBreak ? null : b.isQuickEvent ? null : taskById(b.taskId);
+          if (!b.isBreak && !b.isQuickEvent && !task) return null;
           const startOff = b.startMin - SCHED_START*60;
           const top = minToY(startOff);
           const height = Math.max(20, b.durationMin * PX_PER_MIN);
@@ -1010,10 +1107,11 @@ function ScheduleBlock({ task, block, top, height, accent, owner, isGhost, isAct
 
   // Visual styling based on block type
   const isBreak = block.isBreak;
+  const isQuickEvent = block.isQuickEvent;
   const BREAK_COLORS = { "Lunch": "#0E9F6E", "Break": "#7C5DCA" };
-  const blockAccent = isBreak ? (BREAK_COLORS[block.breakLabel] || "#888") : accent;
-  const label = isBreak ? block.breakLabel : (block.title || task?.text || "");
-  const icon = isBreak ? (block.breakLabel === "Lunch" ? "🍽 " : "☕ ") : "";
+  const blockAccent = isBreak ? (BREAK_COLORS[block.breakLabel] || "#888") : isQuickEvent ? "#E76F1B" : accent;
+  const label = isBreak ? block.breakLabel : isQuickEvent ? (block.qeTitle || "Event") : (block.title || task?.text || "");
+  const icon = isBreak ? (block.breakLabel === "Lunch" ? "🍽 " : "☕ ") : isQuickEvent ? "📌 " : "";
 
   const bgBase = isActual
     ? blockAccent + "30"      // actual: more saturated fill
@@ -1039,7 +1137,7 @@ function ScheduleBlock({ task, block, top, height, accent, owner, isGhost, isAct
         try { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", String(block.taskId || block.breakId)); } catch (_) {}
       }}
       onDragEnd={onDragEnd}
-      onClick={(e) => { if (resizing || isBreak || isActual) return; e.stopPropagation(); onOpen && onOpen(); }}
+      onClick={(e) => { e.stopPropagation(); if (resizing || isBreak || isQuickEvent || isActual) return; onOpen && onOpen(); }}
       style={{
         position:"absolute", left: isActual ? 6 : 4, right: isActual ? 6 : 4,
         top, height,
@@ -1093,6 +1191,102 @@ function ScheduleBlock({ task, block, top, height, accent, owner, isGhost, isAct
           <div style={{ width:24, height:2, background:blockAccent, borderRadius:1, opacity:0.5 }}></div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// QuickAddPopover — click empty timeline → add a block
+// ─────────────────────────────────────────────────────────────────────────────
+function QuickAddPopover({ owner, startMin, isActual, tasks, onConfirm, onClose }) {
+  const [mode, setMode] = useSh(tasks.length > 0 ? "task" : "event"); // "task" | "event"
+  const [title, setTitle] = useSh("");
+  const [taskId, setTaskId] = useSh(tasks[0]?.id || null);
+  const [dur, setDur] = useSh(30);
+  const ownerColor = owner === "vanja" ? T.vanja : T.oloka;
+  const ownerName  = owner === "vanja" ? "Vanja" : "Oloka";
+
+  const confirm = () => {
+    if (mode === "task" && taskId) onConfirm({ taskId: Number(taskId), durationMin: dur });
+    else if (mode === "event" && title.trim()) onConfirm({ title: title.trim(), durationMin: dur });
+  };
+
+  return (
+    <div onClick={onClose} style={{
+      position:"fixed", inset:0, zIndex:1000,
+      background:"rgba(15,27,58,0.35)",
+      display:"flex", alignItems:"center", justifyContent:"center",
+      padding:"32px 16px",
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background:T.cardBg, borderRadius:10, width:"100%", maxWidth:400,
+        boxShadow:"0 20px 50px rgba(15,27,58,0.3)",
+        borderTop:`3px solid ${isActual ? "#0E9F6E" : ownerColor}`,
+      }}>
+        <div style={{ padding:"14px 18px 12px", borderBottom:`1px solid ${T.border}`, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+          <div>
+            <p style={{ fontSize:10, fontWeight:800, letterSpacing:"0.12em", color: isActual ? "#0E9F6E" : ownerColor }}>
+              {isActual ? "ACTUAL BLOCK" : "NEW BLOCK"} · {ownerName.toUpperCase()} · {fmtTime(startMin)}
+            </p>
+          </div>
+          <button onClick={onClose} style={{ background:"transparent", border:"none", color:T.muted, cursor:"pointer", fontSize:18, lineHeight:1 }}>x</button>
+        </div>
+        <div style={{ padding:"16px 18px", display:"flex", flexDirection:"column", gap:12 }}>
+          {/* Mode toggle */}
+          {tasks.length > 0 && (
+            <div style={{ display:"flex", border:`1px solid ${T.border}`, borderRadius:5, overflow:"hidden" }}>
+              <button onClick={() => setMode("task")} style={{
+                flex:1, padding:"7px", fontSize:10.5, fontWeight:800, border:"none", cursor:"pointer",
+                background: mode === "task" ? ownerColor : T.surface,
+                color: mode === "task" ? "#fff" : T.muted,
+              }}>LINK TASK</button>
+              <button onClick={() => setMode("event")} style={{
+                flex:1, padding:"7px", fontSize:10.5, fontWeight:800, border:"none", borderLeft:`1px solid ${T.border}`, cursor:"pointer",
+                background: mode === "event" ? "#E76F1B" : T.surface,
+                color: mode === "event" ? "#fff" : T.muted,
+              }}>QUICK EVENT</button>
+            </div>
+          )}
+
+          {mode === "task" ? (
+            <select value={taskId || ""} onChange={e => setTaskId(e.target.value)}
+              style={{ width:"100%", padding:"9px 10px", border:`1px solid ${T.border}`, borderRadius:5, fontSize:12, color:T.ink, background:T.bg, fontFamily:"inherit", outline:"none" }}>
+              {tasks.map(t => <option key={t.id} value={t.id}>{t.text}</option>)}
+            </select>
+          ) : (
+            <input
+              autoFocus
+              value={title} onChange={e => setTitle(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") confirm(); if (e.key === "Escape") onClose(); }}
+              placeholder="Event title..."
+              style={{ width:"100%", padding:"9px 10px", border:`1px solid ${T.border}`, borderRadius:5, fontSize:13, color:T.ink, background:T.bg, fontFamily:"inherit", outline:"none" }}
+            />
+          )}
+
+          {/* Duration */}
+          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+            <p style={{ fontSize:10, fontWeight:700, color:T.muted, letterSpacing:"0.08em", whiteSpace:"nowrap" }}>DURATION</p>
+            <select value={dur} onChange={e => setDur(Number(e.target.value))}
+              style={{ flex:1, padding:"7px 8px", border:`1px solid ${T.border}`, borderRadius:5, fontSize:12, color:T.ink, background:T.bg, fontFamily:"inherit", outline:"none" }}>
+              {[15,30,45,60,75,90,120,150,180].map(m => (
+                <option key={m} value={m}>{m < 60 ? `${m} min` : `${Math.floor(m/60)}h${m%60 ? " "+m%60+"m" : ""}`}</option>
+              ))}
+            </select>
+            <p style={{ fontSize:11, color:T.faint, whiteSpace:"nowrap" }}>ends {fmtTime(startMin + dur)}</p>
+          </div>
+        </div>
+        <div style={{ padding:"12px 18px", borderTop:`1px solid ${T.border}`, display:"flex", gap:8, justifyContent:"flex-end", background:T.surface, borderRadius:"0 0 10px 10px" }}>
+          <button onClick={onClose} style={{
+            padding:"7px 14px", background:"transparent", border:`1px solid ${T.border}`,
+            borderRadius:4, fontSize:11, fontWeight:700, cursor:"pointer", color:T.muted, fontFamily:"inherit",
+          }}>Cancel</button>
+          <button onClick={confirm} style={{
+            padding:"7px 16px", background: isActual ? "#0E9F6E" : ownerColor,
+            border:"none", borderRadius:4, fontSize:11, fontWeight:800,
+            letterSpacing:"0.06em", cursor:"pointer", color:"#fff", fontFamily:"inherit",
+          }}>ADD BLOCK</button>
+        </div>
+      </div>
     </div>
   );
 }
