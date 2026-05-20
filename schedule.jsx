@@ -389,9 +389,195 @@ function BreakBlockStrip({ drag, setDrag }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// SchedWeekView — 7-column mini-timeline grid
+// ─────────────────────────────────────────────────────────────────────────────
+function SchedWeekView({ selDate, schedule, onDayClick }) {
+  const [weekOffset, setWeekOffset] = useSh(0);
+
+  const weekDays = useMh(() => {
+    const base = new Date(selDate);
+    const dow = base.getDay();
+    const monday = new Date(base);
+    monday.setDate(base.getDate() - (dow === 0 ? 6 : dow - 1) + weekOffset * 7);
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(monday); d.setDate(monday.getDate() + i); return d;
+    });
+  }, [selDate, weekOffset]);
+
+  const todayIso = isoDate(today());
+  const selIso   = isoDate(selDate);
+  const mth = (d) => MONTHS[d.getMonth()].slice(0, 3);
+  const weekLabel = `${weekDays[0].getDate()} ${mth(weekDays[0])} – ${weekDays[6].getDate()} ${mth(weekDays[6])} ${weekDays[6].getFullYear()}`;
+  const DAY_ABBR = ["MON","TUE","WED","THU","FRI","SAT","SUN"];
+  const SCALE = 88 / ((SCHED_END - SCHED_START) * 60);
+
+  return (
+    <div>
+      {/* Nav */}
+      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:16 }}>
+        <button onClick={() => setWeekOffset(o => o - 1)} style={{ padding:"5px 11px", background:T.surface, border:`1px solid ${T.border}`, borderRadius:5, color:T.ink, cursor:"pointer", fontSize:11, fontWeight:700, fontFamily:"inherit" }}>← Prev</button>
+        <span style={{ flex:1, textAlign:"center", fontSize:12, fontWeight:800, color:T.heading, letterSpacing:"0.06em" }}>{weekLabel}</span>
+        <button onClick={() => setWeekOffset(o => o + 1)} style={{ padding:"5px 11px", background:T.surface, border:`1px solid ${T.border}`, borderRadius:5, color:T.ink, cursor:"pointer", fontSize:11, fontWeight:700, fontFamily:"inherit" }}>Next →</button>
+        {weekOffset !== 0 && (
+          <button onClick={() => setWeekOffset(0)} style={{ padding:"5px 11px", background:T.gold, border:"none", borderRadius:5, color:"#fff", cursor:"pointer", fontSize:11, fontWeight:800, letterSpacing:"0.04em", fontFamily:"inherit" }}>THIS WEEK</button>
+        )}
+      </div>
+
+      {/* Grid */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(7, 1fr)", gap:5 }}>
+        {weekDays.map((day, idx) => {
+          const dk    = isoDate(day);
+          const isToday = dk === todayIso;
+          const isSel   = dk === selIso;
+          const ds = schedule[dk] || { vanja:[], oloka:[] };
+          const allBlocks = [
+            ...(ds.vanja || []).map(b => ({ ...b, owner:"vanja" })),
+            ...(ds.oloka || []).map(b => ({ ...b, owner:"oloka" })),
+          ];
+          return (
+            <div key={dk} onClick={() => onDayClick(day)}
+              style={{
+                cursor:"pointer", padding:"8px 7px", minHeight:150,
+                border:`1.5px solid ${isSel ? T.gold : isToday ? T.navy : T.border}`,
+                borderRadius:8,
+                background: isSel ? T.gold+"15" : isToday ? T.navy+"12" : T.cardBg,
+                transition:"all 0.14s",
+              }}
+              onMouseEnter={e => e.currentTarget.style.borderColor = T.gold + "99"}
+              onMouseLeave={e => e.currentTarget.style.borderColor = isSel ? T.gold : isToday ? T.navy : T.border}
+            >
+              <p style={{ fontSize:8, fontWeight:800, letterSpacing:"0.12em", color: isToday ? T.gold : T.muted, marginBottom:1 }}>{DAY_ABBR[idx]}</p>
+              <p style={{ fontSize:22, fontWeight:800, color: isToday || isSel ? T.gold : T.ink, lineHeight:1, marginBottom:6 }}>{day.getDate()}</p>
+              {/* Mini timeline */}
+              <div style={{ position:"relative", height:88, background:T.surface, borderRadius:4, overflow:"hidden" }}>
+                {/* Hour lines */}
+                {Array.from({ length: SCHED_END - SCHED_START + 1 }, (_, i) => (
+                  <div key={i} style={{ position:"absolute", left:0, right:0, top: Math.round(i * 60 * SCALE), height:1, background:T.border, opacity:0.5 }} />
+                ))}
+                {allBlocks.map((b, bi) => {
+                  const off = b.startMin - SCHED_START * 60;
+                  if (off < 0 || off > (SCHED_END - SCHED_START) * 60) return null;
+                  const top = Math.round(off * SCALE);
+                  const ht  = Math.max(3, Math.round(b.durationMin * SCALE));
+                  return (
+                    <div key={bi} style={{
+                      position:"absolute", left:2, right:2, top, height:ht,
+                      background: b.owner === "vanja" ? T.vanja : T.oloka,
+                      borderRadius:2, opacity:0.75,
+                    }} />
+                  );
+                })}
+                {allBlocks.length === 0 && (
+                  <p style={{ fontSize:8.5, color:T.faint, padding:"6px 5px" }}>Empty</p>
+                )}
+              </div>
+              {allBlocks.length > 0 && (
+                <p style={{ fontSize:8.5, color:T.muted, marginTop:4, fontWeight:700 }}>
+                  {allBlocks.length} block{allBlocks.length !== 1 ? "s" : ""}
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SchedMonthView — calendar grid with block-count dots
+// ─────────────────────────────────────────────────────────────────────────────
+function SchedMonthView({ selDate, schedule, onDayClick }) {
+  const [monthOffset, setMonthOffset] = useSh(0);
+
+  const baseDate = useMh(() => {
+    const d = new Date(selDate.getFullYear(), selDate.getMonth() + monthOffset, 1);
+    return d;
+  }, [selDate, monthOffset]);
+
+  const calDays = useMh(() => {
+    const first = new Date(baseDate.getFullYear(), baseDate.getMonth(), 1);
+    const dow = first.getDay();
+    const startOff = dow === 0 ? 6 : dow - 1;
+    const gridStart = new Date(first);
+    gridStart.setDate(first.getDate() - startOff);
+    return Array.from({ length: 42 }, (_, i) => {
+      const d = new Date(gridStart); d.setDate(gridStart.getDate() + i); return d;
+    });
+  }, [baseDate]);
+
+  const todayIso = isoDate(today());
+  const selIso   = isoDate(selDate);
+
+  return (
+    <div>
+      {/* Nav */}
+      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:16 }}>
+        <button onClick={() => setMonthOffset(o => o - 1)} style={{ padding:"5px 11px", background:T.surface, border:`1px solid ${T.border}`, borderRadius:5, color:T.ink, cursor:"pointer", fontSize:11, fontWeight:700, fontFamily:"inherit" }}>← Prev</button>
+        <span style={{ flex:1, textAlign:"center", fontSize:13, fontWeight:800, color:T.heading, letterSpacing:"0.08em" }}>
+          {MONTHS[baseDate.getMonth()].toUpperCase()} {baseDate.getFullYear()}
+        </span>
+        <button onClick={() => setMonthOffset(o => o + 1)} style={{ padding:"5px 11px", background:T.surface, border:`1px solid ${T.border}`, borderRadius:5, color:T.ink, cursor:"pointer", fontSize:11, fontWeight:700, fontFamily:"inherit" }}>Next →</button>
+        {monthOffset !== 0 && (
+          <button onClick={() => setMonthOffset(0)} style={{ padding:"5px 11px", background:T.gold, border:"none", borderRadius:5, color:"#fff", cursor:"pointer", fontSize:11, fontWeight:800, letterSpacing:"0.04em", fontFamily:"inherit" }}>THIS MONTH</button>
+        )}
+      </div>
+      {/* DOW headers */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(7, 1fr)", gap:3, marginBottom:3 }}>
+        {["MON","TUE","WED","THU","FRI","SAT","SUN"].map(d => (
+          <div key={d} style={{ textAlign:"center", fontSize:8.5, fontWeight:800, letterSpacing:"0.1em", color:T.muted, padding:"4px 0" }}>{d}</div>
+        ))}
+      </div>
+      {/* Calendar cells */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(7, 1fr)", gap:3 }}>
+        {calDays.map((day, idx) => {
+          const dk = isoDate(day);
+          const inMonth = day.getMonth() === baseDate.getMonth();
+          const isToday = dk === todayIso;
+          const isSel   = dk === selIso;
+          const ds = schedule[dk] || { vanja:[], oloka:[] };
+          const vc = (ds.vanja || []).length;
+          const oc = (ds.oloka || []).length;
+          return (
+            <div key={idx} onClick={() => onDayClick(day)}
+              style={{
+                cursor:"pointer", padding:"7px 6px", minHeight:64,
+                border:`1px solid ${isSel ? T.gold : isToday ? T.navy + "77" : T.border}`,
+                borderRadius:6,
+                background: isSel ? T.gold+"15" : isToday ? T.navy+"10" : inMonth ? T.cardBg : T.surface,
+                opacity: inMonth ? 1 : 0.4,
+                transition:"all 0.12s",
+              }}
+              onMouseEnter={e => { if (inMonth) e.currentTarget.style.borderColor = T.gold + "88"; }}
+              onMouseLeave={e => e.currentTarget.style.borderColor = isSel ? T.gold : isToday ? T.navy + "77" : T.border}
+            >
+              <p style={{ fontSize:13, fontWeight:800, color: isToday || isSel ? T.gold : inMonth ? T.ink : T.muted, lineHeight:1, marginBottom:5 }}>{day.getDate()}</p>
+              <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
+                {vc > 0 && (
+                  <div style={{ display:"flex", alignItems:"center", gap:3 }}>
+                    <div style={{ width:6, height:6, borderRadius:"50%", background:T.vanja }} />
+                    <span style={{ fontSize:9, color:T.muted, fontWeight:700 }}>{vc}</span>
+                  </div>
+                )}
+                {oc > 0 && (
+                  <div style={{ display:"flex", alignItems:"center", gap:3 }}>
+                    <div style={{ width:6, height:6, borderRadius:"50%", background:T.oloka }} />
+                    <span style={{ fontSize:9, color:T.muted, fontWeight:700 }}>{oc}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // ScheduleView
 // ─────────────────────────────────────────────────────────────────────────────
-function ScheduleView({ selDate, tasksByDate, schedule, setSchedule, dayNotes, setDayNotes, actualSchedule, setActualSchedule }) {
+function ScheduleView({ selDate, onDateChange, tasksByDate, schedule, setSchedule, dayNotes, setDayNotes, actualSchedule, setActualSchedule }) {
   const dk = isoDate(selDate);
   const tasksToday = (tasksByDate[dk] || []).filter(t => t.category !== "Event" && t.owner !== "event");
   const daySchedule = schedule[dk] || { vanja: [], oloka: [] };
@@ -403,6 +589,32 @@ function ScheduleView({ selDate, tasksByDate, schedule, setSchedule, dayNotes, s
   const [editing, setEditing] = useSh(null);
   const [includeOther, setIncludeOther] = useSh(false);
   const [drag, setDrag] = useSh(null);
+  const [schedView, setSchedView] = useSh("day"); // "day" | "week" | "month"
+  const [extraDays, setExtraDays] = useSh([]); // continuous scroll
+  const sentinelRef = useRh(null);
+  const selIso = isoDate(selDate);
+
+  // Reset extra days whenever the selected date changes
+  useEh(() => { setExtraDays([]); }, [selIso]);
+
+  // IntersectionObserver: load next day when sentinel scrolls into view
+  useEh(() => {
+    if (schedView !== "day") return;
+    const el = sentinelRef.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting) {
+        setExtraDays(prev => {
+          const last = prev.length > 0 ? prev[prev.length - 1] : selDate;
+          const next = new Date(last);
+          next.setDate(next.getDate() + 1);
+          return [...prev, next];
+        });
+      }
+    }, { rootMargin:"0px 0px 80px 0px", threshold:0.01 });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [schedView, selIso, extraDays.length]);
 
   const allOpenTasks = useMh(() => {
     const out = [];
@@ -588,6 +800,59 @@ function ScheduleView({ selDate, tasksByDate, schedule, setSchedule, dayNotes, s
 
   return (
     <div>
+      {/* ── View toggle (DAY / WEEK / MONTH) ── */}
+      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:16, flexWrap:"wrap" }}>
+        <div style={{ display:"flex", border:`1px solid ${T.border}`, borderRadius:6, overflow:"hidden" }}>
+          {[
+            { key:"day",   label:"DAY"   },
+            { key:"week",  label:"WEEK"  },
+            { key:"month", label:"MONTH" },
+          ].map(({ key, label }, i) => (
+            <button key={key} onClick={() => setSchedView(key)} style={{
+              padding:"6px 14px", fontSize:10, fontWeight:800, letterSpacing:"0.08em",
+              border:"none", borderLeft: i > 0 ? `1px solid ${T.border}` : "none",
+              cursor:"pointer", fontFamily:"inherit",
+              background: schedView === key ? T.navy : T.surface,
+              color: schedView === key ? "#fff" : T.muted,
+              transition:"all 0.15s",
+            }}>{label}</button>
+          ))}
+        </div>
+        {/* Outlook connect hint */}
+        <div style={{
+          display:"flex", alignItems:"center", gap:7,
+          padding:"5px 11px",
+          background:T.surface, border:`1px solid ${T.border}`,
+          borderRadius:6, fontSize:10, color:T.muted, fontWeight:700,
+          letterSpacing:"0.04em",
+        }}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.muted} strokeWidth="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 10h20"/></svg>
+          OUTLOOK SYNC
+          <span style={{ fontSize:9, background:T.border, color:T.faint, borderRadius:3, padding:"1px 5px", fontWeight:800 }}>SOON</span>
+        </div>
+      </div>
+
+      {/* ── WEEK VIEW ── */}
+      {schedView === "week" && (
+        <SchedWeekView
+          selDate={selDate}
+          schedule={schedule}
+          onDayClick={d => { if (onDateChange) onDateChange(d); setSchedView("day"); }}
+        />
+      )}
+
+      {/* ── MONTH VIEW ── */}
+      {schedView === "month" && (
+        <SchedMonthView
+          selDate={selDate}
+          schedule={schedule}
+          onDayClick={d => { if (onDateChange) onDateChange(d); setSchedView("day"); }}
+        />
+      )}
+
+      {/* ── DAY VIEW ── */}
+      {schedView === "day" && <div>
+
       {/* ── Morning Plan bookend ── */}
       <MorningPlanPanel dk={dk} dayNotes={dayNotes || {}} setDayNotes={setDayNotes} />
 
@@ -754,6 +1019,89 @@ function ScheduleView({ selDate, tasksByDate, schedule, setSchedule, dayNotes, s
 
       {/* ── Daily Review bookend ── */}
       <DailyReviewPanel dk={dk} dayNotes={dayNotes || {}} setDayNotes={setDayNotes} />
+
+      {/* ── Continuous scroll: extra days below ── */}
+      {extraDays.map((day) => {
+        const exDk = isoDate(day);
+        const exSched = schedule[exDk] || { vanja:[], oloka:[] };
+        const exActual = (actualSchedule || {})[exDk] || { vanja:[], oloka:[] };
+        const exLabel = `${DAYS_LONG[day.getDay()]}, ${day.getDate()} ${MONTHS[day.getMonth()]} ${day.getFullYear()}`;
+        const exIsToday = exDk === isoDate(today());
+        const SCALE = 88 / ((SCHED_END - SCHED_START) * 60);
+        const allEx = [
+          ...(exSched.vanja || []).map(b => ({ ...b, owner:"vanja" })),
+          ...(exSched.oloka || []).map(b => ({ ...b, owner:"oloka" })),
+        ];
+        return (
+          <div key={exDk} style={{ marginTop:24, borderTop:`2px solid ${T.border}`, paddingTop:20 }}>
+            {/* Day header */}
+            <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:14 }}>
+              <div style={{ display:"flex", flexDirection:"column" }}>
+                <p style={{ fontSize:10, fontWeight:800, letterSpacing:"0.14em", color:T.gold, marginBottom:2 }}>
+                  {exIsToday ? "TODAY" : "NEXT DAY"}
+                </p>
+                <p style={{ fontFamily:"'ProximaNova Black', sans-serif", fontWeight:800, fontSize:18, color:T.heading }}>{exLabel}</p>
+              </div>
+              <button
+                onClick={() => { if (onDateChange) onDateChange(day); setExtraDays([]); }}
+                style={{
+                  marginLeft:"auto", padding:"7px 16px",
+                  background:T.navy, color:"#fff", border:"none", borderRadius:6,
+                  fontSize:10, fontWeight:800, letterSpacing:"0.08em",
+                  cursor:"pointer", fontFamily:"inherit",
+                }}
+              >OPEN DAY →</button>
+            </div>
+
+            {/* Mini timeline preview */}
+            {allEx.length === 0 ? (
+              <div style={{ padding:"24px 16px", textAlign:"center", border:`1px dashed ${T.border}`, borderRadius:8, background:T.surface }}>
+                <p style={{ fontSize:12, color:T.faint, fontStyle:"italic" }}>No blocks scheduled — click OPEN DAY to plan this day.</p>
+              </div>
+            ) : (
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                {["vanja","oloka"].map(owner => {
+                  const ownerBlocks = (exSched[owner] || []);
+                  if (ownerBlocks.length === 0) return null;
+                  const accent = owner === "vanja" ? T.vanja : T.oloka;
+                  return (
+                    <div key={owner} style={{ border:`1px solid ${T.border}`, borderRadius:8, overflow:"hidden" }}>
+                      <div style={{ padding:"6px 12px", background:accent, color:"#fff", fontSize:10, fontWeight:800, letterSpacing:"0.1em" }}>
+                        {owner.toUpperCase()}
+                      </div>
+                      <div style={{ position:"relative", height:88, background:T.cardBg }}>
+                        {Array.from({ length: SCHED_END - SCHED_START + 1 }, (_, i) => (
+                          <div key={i} style={{ position:"absolute", left:0, right:0, top: Math.round(i * 60 * SCALE), height:1, background:T.border, opacity:0.4 }} />
+                        ))}
+                        {ownerBlocks.map((b, bi) => {
+                          const off = b.startMin - SCHED_START * 60;
+                          if (off < 0) return null;
+                          const top = Math.round(off * SCALE);
+                          const ht  = Math.max(4, Math.round(b.durationMin * SCALE));
+                          return (
+                            <div key={bi} title={b.qeTitle || b.breakLabel || String(b.taskId)} style={{
+                              position:"absolute", left:3, right:3, top, height:ht,
+                              background:accent, borderRadius:2, opacity:0.75,
+                            }} />
+                          );
+                        })}
+                      </div>
+                      <p style={{ padding:"5px 10px", fontSize:9.5, color:T.muted, fontWeight:700, background:T.surface }}>
+                        {ownerBlocks.length} block{ownerBlocks.length !== 1 ? "s" : ""} · {Math.round(ownerBlocks.reduce((s, b) => s + b.durationMin, 0) / 60 * 10) / 10}h
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {/* Sentinel for infinite scroll */}
+      <div ref={sentinelRef} style={{ height:4, marginTop:24 }} />
+
+      </div>}
 
       {/* ── Quick-add popover ── */}
       {quickAdd && (
