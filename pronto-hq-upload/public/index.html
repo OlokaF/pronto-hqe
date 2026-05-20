@@ -3817,7 +3817,7 @@ function BreakBlockStrip({ drag, setDrag }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // ScheduleView
 // ─────────────────────────────────────────────────────────────────────────────
-function ScheduleView({ selDate, tasksByDate, schedule, setSchedule, dayNotes, setDayNotes, actualSchedule, setActualSchedule }) {
+function ScheduleView({ selDate, tasksByDate, schedule, setSchedule, dayNotes, setDayNotes, actualSchedule, setActualSchedule, schedSpans = [], setSchedSpans }) {
   const dk = isoDate(selDate);
   const tasksToday = (tasksByDate[dk] || []).filter(t => t.category !== "Event" && t.owner !== "event");
   const daySchedule = schedule[dk] || { vanja: [], oloka: [] };
@@ -3832,6 +3832,7 @@ function ScheduleView({ selDate, tasksByDate, schedule, setSchedule, dayNotes, s
   const [schedView, setSchedView] = useSh("day");
   const [schedWeekOffset, setSchedWeekOffset] = useSh(0);
   const [schedMonthOffset, setSchedMonthOffset] = useSh(0);
+  const [schedSelDay, setSchedSelDay] = useSh(null); // date key of selected day for panel
 
   const allOpenTasks = useMh(() => {
     const out = [];
@@ -4039,35 +4040,95 @@ function ScheduleView({ selDate, tasksByDate, schedule, setSchedule, dayNotes, s
       {/* ── WEEK VIEW ── */}
       {schedView === "week" && (() => {
         const weekDays = Array.from({length:7}, (_, i) => addDays(schedMonday, i));
+        // Compute spans that fall in this week
+        const weekStart = isoDate(schedMonday);
+        const weekEnd = isoDate(addDays(schedMonday, 6));
+        const weekSpans = (schedSpans || []).filter(s => s.startDate <= weekEnd && s.endDate >= weekStart);
         return (
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:8, marginBottom:20 }}>
-            {weekDays.map((d, di) => {
-              const wdk = isoDate(d);
-              const tasks = (tasksByDate[wdk] || []).filter(t => t.category !== "Event" && t.owner !== "event");
-              const total = tasks.length;
-              const done = tasks.filter(t => t.done).length;
-              const pct = total > 0 ? Math.round(done/total*100) : null;
-              const isToday = wdk === isoDate(today());
-              const isWeekend = di >= 5;
-              const schBlocks = ((schedule[wdk]||{}).vanja||[]).length + ((schedule[wdk]||{}).oloka||[]).length;
-              return (
-                <div key={wdk} style={{ border:`1px solid ${isToday ? T.gold : T.border}`, borderRadius:8, padding:"10px 12px", background: isWeekend ? T.surface2 : T.cardBg, minHeight:100 }}>
-                  <div style={{ fontWeight:800, fontSize:10, letterSpacing:"0.08em", color: isWeekend ? T.muted : T.heading, marginBottom:4 }}>{["MON","TUE","WED","THU","FRI","SAT","SUN"][di]}</div>
-                  <div style={{ display:"inline-flex", alignItems:"center", justifyContent:"center", width:24, height:24, borderRadius:"50%", background: isToday ? T.gold : "transparent", color: isToday ? "#fff" : T.ink, fontWeight:700, fontSize:13, marginBottom:8 }}>{d.getDate()}</div>
-                  {total > 0 ? (
-                    <>
-                      <div style={{ fontSize:11, fontWeight:700, color:T.ink, marginBottom:4 }}>{done}/{total} tasks</div>
-                      <div style={{ height:4, background:T.surface2, borderRadius:2, marginBottom:6 }}>
-                        <div style={{ height:"100%", width:`${pct}%`, background: pct===100 ? "#0E9F6E" : T.gold, borderRadius:2 }} />
+          <div>
+            {/* Multi-day span bars */}
+            {weekSpans.length > 0 && (
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:8, marginBottom:6 }}>
+                {weekDays.map((d, di) => {
+                  const dkey = isoDate(d);
+                  const daySpans = weekSpans.filter(s => s.startDate <= dkey && s.endDate >= dkey);
+                  return (
+                    <div key={dkey} style={{ minHeight: daySpans.length > 0 ? undefined : 0 }}>
+                      {daySpans.map(s => {
+                        const isStart = s.startDate === dkey;
+                        const isEnd = s.endDate === dkey;
+                        return (
+                          <div key={s.id} style={{
+                            background: s.color || T.gold,
+                            color:"#fff",
+                            fontSize:9, fontWeight:700,
+                            padding:"2px 6px",
+                            borderRadius: isStart && isEnd ? 4 : isStart ? "4px 0 0 4px" : isEnd ? "0 4px 4px 0" : 0,
+                            marginBottom:2,
+                            overflow:"hidden", whiteSpace:"nowrap", textOverflow:"ellipsis",
+                            opacity:0.9,
+                          }}>
+                            {isStart ? s.title : ""}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {/* Day cells grid */}
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:8, marginBottom:20 }}>
+              {weekDays.map((d, di) => {
+                const wdk = isoDate(d);
+                const tasks = (tasksByDate[wdk] || []).filter(t => t.category !== "Event" && t.owner !== "event");
+                const total = tasks.length;
+                const done = tasks.filter(t => t.done).length;
+                const pct = total > 0 ? Math.round(done/total*100) : null;
+                const isToday = wdk === isoDate(today());
+                const isWeekend = di >= 5;
+                const schBlocks = ((schedule[wdk]||{}).vanja||[]).length + ((schedule[wdk]||{}).oloka||[]).length;
+                const plan = ((dayNotes || {})[wdk] || {}).plan || {};
+                const priorities = [plan.p1, plan.p2, plan.p3].filter(Boolean);
+                const isSelected = schedSelDay === wdk;
+                return (
+                  <div key={wdk}
+                    onClick={() => setSchedSelDay(isSelected ? null : wdk)}
+                    style={{
+                      border:`1.5px solid ${isSelected ? T.gold : isToday ? T.gold + "88" : T.border}`,
+                      borderRadius:8, padding:"10px 12px",
+                      background: isSelected ? T.gold + "11" : isWeekend ? T.surface2 : T.cardBg,
+                      minHeight:110, cursor:"pointer",
+                      transition:"all 0.15s",
+                    }}>
+                    <div style={{ fontWeight:800, fontSize:10, letterSpacing:"0.08em", color: isWeekend ? T.muted : T.heading, marginBottom:4 }}>{["MON","TUE","WED","THU","FRI","SAT","SUN"][di]}</div>
+                    <div style={{ display:"inline-flex", alignItems:"center", justifyContent:"center", width:24, height:24, borderRadius:"50%", background: isToday ? T.gold : "transparent", color: isToday ? "#fff" : T.ink, fontWeight:700, fontSize:13, marginBottom:6 }}>{d.getDate()}</div>
+                    {/* Morning plan priorities */}
+                    {priorities.length > 0 && (
+                      <div style={{ marginBottom:6 }}>
+                        {priorities.map((p, i) => (
+                          <div key={i} style={{ display:"flex", alignItems:"flex-start", gap:4, marginBottom:2 }}>
+                            <span style={{ fontSize:8, fontWeight:800, color:T.gold, marginTop:1, flexShrink:0 }}>{i+1}</span>
+                            <span style={{ fontSize:9, color:T.ink, lineHeight:1.3, overflow:"hidden", display:"-webkit-box", WebkitLineClamp:1, WebkitBoxOrient:"vertical" }}>{p}</span>
+                          </div>
+                        ))}
                       </div>
-                    </>
-                  ) : (
-                    <div style={{ fontSize:10, color:T.faint, fontStyle:"italic" }}>No tasks</div>
-                  )}
-                  {schBlocks > 0 && <div style={{ fontSize:9, fontWeight:700, color:T.vanja, letterSpacing:"0.05em" }}>{schBlocks} block{schBlocks!==1?"s":""} scheduled</div>}
-                </div>
-              );
-            })}
+                    )}
+                    {total > 0 ? (
+                      <>
+                        <div style={{ fontSize:10, fontWeight:700, color:T.muted, marginBottom:3 }}>{done}/{total} tasks</div>
+                        <div style={{ height:3, background:T.surface2, borderRadius:2, marginBottom:4 }}>
+                          <div style={{ height:"100%", width:`${pct}%`, background: pct===100 ? "#0E9F6E" : T.accent, borderRadius:2 }} />
+                        </div>
+                      </>
+                    ) : (
+                      !priorities.length && <div style={{ fontSize:9, color:T.faint, fontStyle:"italic" }}>Tap to plan</div>
+                    )}
+                    {schBlocks > 0 && <div style={{ fontSize:9, fontWeight:700, color:T.vanja, letterSpacing:"0.05em" }}>{schBlocks} block{schBlocks!==1?"s":""}</div>}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         );
       })()}
@@ -4082,6 +4143,10 @@ function ScheduleView({ selDate, tasksByDate, schedule, setSchedule, dayNotes, s
         for (let i = 0; i < startDow; i++) cells.push(null);
         for (let d = 1; d <= daysInMonth; d++) cells.push(d);
         while (cells.length % 7 !== 0) cells.push(null);
+        const monthKey = `${year}-${String(month+1).padStart(2,"0")}`;
+        const monthStart = `${monthKey}-01`;
+        const monthEnd = isoDate(new Date(year, month+1, 0));
+        const monthSpans = (schedSpans || []).filter(s => s.startDate <= monthEnd && s.endDate >= monthStart);
         return (
           <div style={{ border:`1px solid ${T.border}`, borderRadius:8, overflow:"hidden", marginBottom:20 }}>
             <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", background:T.surface, borderBottom:`1px solid ${T.border}` }}>
@@ -4091,7 +4156,7 @@ function ScheduleView({ selDate, tasksByDate, schedule, setSchedule, dayNotes, s
             </div>
             <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)" }}>
               {cells.map((d, i) => {
-                if (!d) return <div key={i} style={{ minHeight:70, background:T.surface2, borderRight:`1px solid ${T.border}`, borderBottom:`1px solid ${T.border}` }} />;
+                if (!d) return <div key={i} style={{ minHeight:80, background:T.surface2, borderRight:`1px solid ${T.border}`, borderBottom:`1px solid ${T.border}` }} />;
                 const mdk = isoDate(new Date(year, month, d));
                 const tasks = (tasksByDate[mdk] || []).filter(t => t.category !== "Event" && t.owner !== "event");
                 const total = tasks.length;
@@ -4100,13 +4165,39 @@ function ScheduleView({ selDate, tasksByDate, schedule, setSchedule, dayNotes, s
                 const isToday = mdk === isoDate(today());
                 const isWeekend = i % 7 >= 5;
                 const schBlocks = ((schedule[mdk]||{}).vanja||[]).length + ((schedule[mdk]||{}).oloka||[]).length;
+                const plan = ((dayNotes || {})[mdk] || {}).plan || {};
+                const p1 = plan.p1;
+                const isSelected = schedSelDay === mdk;
+                const daySpans = monthSpans.filter(s => s.startDate <= mdk && s.endDate >= mdk);
                 return (
-                  <div key={i} style={{ minHeight:70, padding:"6px 8px", background: isWeekend ? T.surface2 : T.cardBg, borderRight:`1px solid ${T.border}`, borderBottom:`1px solid ${T.border}` }}>
-                    <span style={{ display:"inline-flex", alignItems:"center", justifyContent:"center", width:20, height:20, borderRadius:"50%", background: isToday ? T.gold : "transparent", color: isToday ? "#fff" : isWeekend ? T.muted : T.ink, fontSize:11, fontWeight:700, marginBottom:3 }}>{d}</span>
+                  <div key={i}
+                    onClick={() => setSchedSelDay(isSelected ? null : mdk)}
+                    style={{
+                      minHeight:80, padding:"5px 6px",
+                      background: isSelected ? T.gold + "11" : isWeekend ? T.surface2 : T.cardBg,
+                      borderRight:`1px solid ${T.border}`, borderBottom:`1px solid ${T.border}`,
+                      cursor:"pointer", transition:"all 0.12s",
+                      outline: isSelected ? `2px solid ${T.gold}` : "none",
+                      outlineOffset:-2,
+                    }}>
+                    <span style={{ display:"inline-flex", alignItems:"center", justifyContent:"center", width:20, height:20, borderRadius:"50%", background: isToday ? T.gold : "transparent", color: isToday ? "#fff" : isWeekend ? T.muted : T.ink, fontSize:11, fontWeight:700, marginBottom:2 }}>{d}</span>
+                    {/* Span bars */}
+                    {daySpans.map(s => {
+                      const isStart = s.startDate === mdk;
+                      return (
+                        <div key={s.id} style={{
+                          background: s.color || T.gold,
+                          height:5, borderRadius: isStart ? "3px 0 0 3px" : "0 3px 3px 0",
+                          marginBottom:2, opacity:0.85,
+                        }} title={s.title} />
+                      );
+                    })}
+                    {/* Priority 1 only (space is tight) */}
+                    {p1 && <div style={{ fontSize:9, color:T.ink, lineHeight:1.3, overflow:"hidden", display:"-webkit-box", WebkitLineClamp:1, WebkitBoxOrient:"vertical", marginTop:1 }}>⭑ {p1}</div>}
                     {total > 0 && (
                       <>
-                        <div style={{ height:3, background:T.surface2, borderRadius:2, marginBottom:3 }}>
-                          <div style={{ height:"100%", width:`${pct}%`, background: pct===100 ? "#0E9F6E" : T.gold, borderRadius:2 }} />
+                        <div style={{ height:3, background:T.surface2, borderRadius:2, marginBottom:2, marginTop:2 }}>
+                          <div style={{ height:"100%", width:`${pct}%`, background: pct===100 ? "#0E9F6E" : T.accent, borderRadius:2 }} />
                         </div>
                         <div style={{ fontSize:9, color:T.muted, fontWeight:600 }}>{done}/{total}</div>
                       </>
@@ -4115,6 +4206,127 @@ function ScheduleView({ selDate, tasksByDate, schedule, setSchedule, dayNotes, s
                   </div>
                 );
               })}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── SELECTED DAY PANEL (week/month view click) ── */}
+      {schedSelDay && schedView !== "day" && (() => {
+        const spk = schedSelDay;
+        const spDate = new Date(spk);
+        const spPlan = ((dayNotes || {})[spk] || {}).plan || {};
+        const setSpField = (field, val) => setDayNotes(prev => {
+          const day = prev[spk] || {};
+          return { ...prev, [spk]: { ...day, plan: { ...(day.plan || {}), [field]: val } } };
+        });
+        const daySpans = (schedSpans || []).filter(s => s.startDate <= spk && s.endDate >= spk);
+        // New span form state — managed with a hack using data attributes via refs
+        const SPAN_COLORS = ["#F59E0B","#3B82F6","#10B981","#EF4444","#8B5CF6","#F97316","#EC4899","#14B8A6"];
+        const [newSpan, setNewSpan] = useSh(null); // {title, startDate, endDate, color}
+        return (
+          <div style={{
+            border:`1.5px solid ${T.gold}`,
+            borderRadius:10,
+            marginBottom:20,
+            background:T.cardBg,
+            overflow:"hidden",
+          }}>
+            {/* Header */}
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"12px 16px", background:T.surface, borderBottom:`1px solid ${T.border}` }}>
+              <div>
+                <div style={{ fontSize:10, fontWeight:800, letterSpacing:"0.14em", color:T.gold }}>☀️ DAILY PLAN</div>
+                <div style={{ fontSize:13, fontWeight:700, color:T.heading, marginTop:2 }}>
+                  {spDate.toLocaleDateString("en-AU", { weekday:"long", day:"numeric", month:"long" })}
+                </div>
+              </div>
+              <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+                <button onClick={() => { setSchedView("day"); /* navigate to day view for this date */ }} style={{ padding:"5px 10px", background:T.navy, border:"none", borderRadius:5, color:"#fff", fontSize:10, fontWeight:800, cursor:"pointer", fontFamily:"inherit" }}>OPEN DAY</button>
+                <button onClick={() => setSchedSelDay(null)} style={{ width:24, height:24, background:T.surface2, border:`1px solid ${T.border}`, borderRadius:5, color:T.muted, fontSize:14, cursor:"pointer", lineHeight:1, display:"flex", alignItems:"center", justifyContent:"center" }}>×</button>
+              </div>
+            </div>
+            <div style={{ padding:"14px 16px", display:"flex", flexDirection:"column", gap:14 }}>
+              {/* Morning plan priorities */}
+              <div>
+                <div style={{ fontSize:10, fontWeight:800, letterSpacing:"0.1em", color:T.muted, marginBottom:8 }}>TOP PRIORITIES</div>
+                {[{key:"p1",label:"Priority 1"},{key:"p2",label:"Priority 2"},{key:"p3",label:"Priority 3"}].map(({key, label}, i) => (
+                  <div key={key} style={{ display:"flex", alignItems:"center", gap:10, marginBottom:6 }}>
+                    <div style={{ width:20, height:20, borderRadius:"50%", flexShrink:0, background: spPlan[key] ? T.gold : T.surface, border:`1.5px solid ${spPlan[key] ? T.gold : T.border}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:9, fontWeight:800, color: spPlan[key] ? "#fff" : T.muted }}>{i+1}</div>
+                    <input
+                      value={spPlan[key] || ""}
+                      onChange={e => setSpField(key, e.target.value)}
+                      placeholder={`${label}…`}
+                      style={{ flex:1, padding:"6px 10px", border:`1px solid ${T.border}`, borderRadius:5, fontSize:12, color:T.ink, background:T.bg, outline:"none", fontFamily:"inherit" }}
+                    />
+                  </div>
+                ))}
+                {/* Notes */}
+                <textarea
+                  value={spPlan.notes || ""}
+                  onChange={e => setSpField("notes", e.target.value)}
+                  placeholder="Notes for the day…"
+                  rows={2}
+                  style={{ width:"100%", padding:"7px 10px", border:`1px solid ${T.border}`, borderRadius:5, fontSize:11, color:T.ink, background:T.bg, outline:"none", fontFamily:"inherit", resize:"vertical", boxSizing:"border-box" }}
+                />
+              </div>
+
+              {/* Multi-day spans section */}
+              <div>
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+                  <div style={{ fontSize:10, fontWeight:800, letterSpacing:"0.1em", color:T.muted }}>EVENTS & SPANS</div>
+                  <button onClick={() => setNewSpan({ title:"", startDate: spk, endDate: spk, color: SPAN_COLORS[0] })} style={{ padding:"3px 8px", background:T.surface, border:`1px solid ${T.border}`, borderRadius:5, fontSize:10, fontWeight:700, color:T.muted, cursor:"pointer", fontFamily:"inherit" }}>+ Add</button>
+                </div>
+                {/* Existing spans */}
+                {daySpans.map(s => (
+                  <div key={s.id} style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6, padding:"6px 10px", background:T.surface, borderRadius:6, border:`1px solid ${T.border}` }}>
+                    <div style={{ width:10, height:10, borderRadius:3, background: s.color || T.gold, flexShrink:0 }} />
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:11, fontWeight:700, color:T.ink }}>{s.title || "Untitled"}</div>
+                      <div style={{ fontSize:9, color:T.muted }}>{s.startDate} → {s.endDate}</div>
+                    </div>
+                    <button onClick={() => setSchedSpans(prev => prev.filter(x => x.id !== s.id))} style={{ background:"none", border:"none", color:T.muted, cursor:"pointer", fontSize:13, padding:"0 4px" }}>×</button>
+                  </div>
+                ))}
+                {daySpans.length === 0 && !newSpan && <div style={{ fontSize:10, color:T.faint, fontStyle:"italic" }}>No events spanning this day</div>}
+                {/* New span form */}
+                {newSpan && (
+                  <div style={{ padding:"10px 12px", background:T.surface, borderRadius:8, border:`1px solid ${T.border}`, marginTop:6 }}>
+                    <input
+                      value={newSpan.title}
+                      onChange={e => setNewSpan(s => ({ ...s, title: e.target.value }))}
+                      placeholder="Event title…"
+                      autoFocus
+                      style={{ width:"100%", padding:"7px 10px", border:`1px solid ${T.border}`, borderRadius:5, fontSize:12, color:T.ink, background:T.bg, outline:"none", fontFamily:"inherit", boxSizing:"border-box", marginBottom:8 }}
+                    />
+                    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8 }}>
+                      <div>
+                        <div style={{ fontSize:9, fontWeight:700, color:T.muted, marginBottom:3 }}>START DATE</div>
+                        <input type="date" value={newSpan.startDate} onChange={e => setNewSpan(s => ({ ...s, startDate: e.target.value }))}
+                          style={{ width:"100%", padding:"6px 8px", border:`1px solid ${T.border}`, borderRadius:5, fontSize:11, color:T.ink, background:T.bg, outline:"none", fontFamily:"inherit", boxSizing:"border-box" }} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize:9, fontWeight:700, color:T.muted, marginBottom:3 }}>END DATE</div>
+                        <input type="date" value={newSpan.endDate} onChange={e => setNewSpan(s => ({ ...s, endDate: e.target.value }))}
+                          style={{ width:"100%", padding:"6px 8px", border:`1px solid ${T.border}`, borderRadius:5, fontSize:11, color:T.ink, background:T.bg, outline:"none", fontFamily:"inherit", boxSizing:"border-box" }} />
+                      </div>
+                    </div>
+                    <div style={{ display:"flex", gap:6, marginBottom:10, flexWrap:"wrap" }}>
+                      {SPAN_COLORS.map(c => (
+                        <button key={c} onClick={() => setNewSpan(s => ({ ...s, color: c }))}
+                          style={{ width:20, height:20, borderRadius:"50%", background:c, border: newSpan.color===c ? `2px solid ${T.ink}` : "2px solid transparent", cursor:"pointer", flexShrink:0 }} />
+                      ))}
+                    </div>
+                    <div style={{ display:"flex", gap:8 }}>
+                      <button onClick={() => {
+                        if (!newSpan.title.trim()) return;
+                        setSchedSpans(prev => [...prev, { ...newSpan, id: Date.now() + Math.random() }]);
+                        setNewSpan(null);
+                      }} style={{ flex:1, padding:"7px", background:T.navy, border:"none", borderRadius:6, color:"#fff", fontSize:11, fontWeight:800, cursor:"pointer", fontFamily:"inherit" }}>SAVE</button>
+                      <button onClick={() => setNewSpan(null)} style={{ padding:"7px 12px", background:T.surface2, border:`1px solid ${T.border}`, borderRadius:6, color:T.muted, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>Cancel</button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         );
@@ -7534,6 +7746,8 @@ function App() {
   const [actualSchedule, setActualSchedule] = useS(() => loadOr("actualSchedule", () => ({})));
   // Day notes — morning plan + daily review per date key
   const [dayNotes, setDayNotes] = useS(() => loadOr("dayNotes", () => ({})));
+  // Multi-day schedule spans — [{id, title, startDate, endDate, color}]
+  const [schedSpans, setSchedSpans] = useS(() => loadOr("schedSpans", () => []));
   // Dismissed notifications: { [key]: true }
   const [notifDismissed, setNotifDismissed] = useS(() => loadOr("notifDismissed", () => ({})));
   // Profile avatars — base64 image data per user
@@ -7567,7 +7781,7 @@ function App() {
     savedAt: new Date().toISOString(),
     tasksByDate, content,
     ideas, suppliers, budget, onboarding, courses, testimonials, photos,
-    plan, staff, lunches, schedule, actualSchedule, dayNotes, notifDismissed, activityLog,
+    plan, staff, lunches, schedule, actualSchedule, dayNotes, schedSpans, notifDismissed, activityLog,
     avatars, branding, categories, postApprovals, videoEvents, visibleTabs,
     contentLabels, videoLabels,
   });
@@ -7585,7 +7799,7 @@ function App() {
     const state = fullState();
     try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch (_) {}
     if (syncRef.current) syncRef.current.scheduleWrite(state);
-  }, [tasksByDate, content, ideas, suppliers, budget, onboarding, courses, testimonials, photos, plan, staff, lunches, schedule, actualSchedule, dayNotes, notifDismissed, activityLog, avatars, branding, categories, postApprovals, videoEvents, visibleTabs, contentLabels, videoLabels]);
+  }, [tasksByDate, content, ideas, suppliers, budget, onboarding, courses, testimonials, photos, plan, staff, lunches, schedule, actualSchedule, dayNotes, schedSpans, notifDismissed, activityLog, avatars, branding, categories, postApprovals, videoEvents, visibleTabs, contentLabels, videoLabels]);
   // Sync categories to window so views.jsx can use them
   useE(() => { window.prontoCats = categories; }, [categories]);
 
@@ -7654,6 +7868,7 @@ function App() {
     if (s.schedule) setSchedule(s.schedule);
     if (s.actualSchedule) setActualSchedule(s.actualSchedule);
     if (s.dayNotes) setDayNotes(s.dayNotes);
+    if (s.schedSpans) setSchedSpans(s.schedSpans);
     if (s.notifDismissed) setNotifDismissed(s.notifDismissed);
     if (s.avatars) setAvatars(s.avatars);
     if (s.branding) setBranding(s.branding);
@@ -8127,7 +8342,7 @@ function App() {
           <MonthView selDate={selDate} tasksByDate={tasksByDate} content={content} onPickDate={onPickDate} onMoveTask={onMoveTask}/>
         )}
         {tab === "schedule" && (
-          <ScheduleView selDate={selDate} tasksByDate={tasksByDate} schedule={schedule} setSchedule={setSchedule} dayNotes={dayNotes} setDayNotes={setDayNotes} actualSchedule={actualSchedule} setActualSchedule={setActualSchedule}/>
+          <ScheduleView selDate={selDate} tasksByDate={tasksByDate} schedule={schedule} setSchedule={setSchedule} dayNotes={dayNotes} setDayNotes={setDayNotes} actualSchedule={actualSchedule} setActualSchedule={setActualSchedule} schedSpans={schedSpans} setSchedSpans={setSchedSpans}/>
         )}
         {tab === "content" && <ContentCalendar selDate={selDate} content={content} onSetContent={setContent} view={contentView} setView={setContentView}/>}
         {tab === "approvals" && <PostApprovalView postApprovals={postApprovals} setPostApprovals={setPostApprovals} todayUser={todayUser} avatars={avatars}/>}
