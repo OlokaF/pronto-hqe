@@ -414,18 +414,22 @@ const PR = {
   Low:    { color: T.low,    soft: T.lowSoft },
 };
 
-const CATS = ["Social Post","Email","Video","Design","Blog","Meeting","Event","Admin"];
+const CATS = ["Social Post","Email","Video","Design","Blog","Meeting","Event","Admin","AI","Website","Content Capture","Editing"];
 
 const CAT_COLOR = {
-  "Social Post": "#6D4CC4",   // indigo-purple (distinct from Vanja's #7C5DCA accent)
-  "Email":       "#1B3F94",   // brand blue
-  "Video":       "#C8261A",   // red
-  "Design":      "#DC9F09",   // gold
-  "Blog":        "#0E9F6E",   // emerald
-  "Meeting":     "#3B5CB8",   // mid-blue (replaces near-black — unreadable in dark)
-  "Event":       "#E07B00",   // amber-orange
-  "Admin":       "#0D9488",   // teal — distinct from purple/blue; reads on all themes
-  "Unassigned":  "#9AA0AE",   // slate
+  "Social Post":    "#6D4CC4",   // indigo-purple
+  "Email":          "#1B3F94",   // brand blue
+  "Video":          "#C8261A",   // red
+  "Design":         "#DC9F09",   // gold
+  "Blog":           "#0E9F6E",   // emerald
+  "Meeting":        "#3B5CB8",   // mid-blue
+  "Event":          "#E07B00",   // amber-orange
+  "Admin":          "#0D9488",   // teal
+  "AI":             "#7C3AED",   // violet
+  "Website":        "#0284C7",   // sky blue
+  "Content Capture":"#BE185D",   // pink
+  "Editing":        "#B45309",   // amber-brown
+  "Unassigned":     "#9AA0AE",   // slate
 };
 
 // Days / dates
@@ -2786,9 +2790,13 @@ function WeekView({ selDate, tasksByDate, content, onPickDate, onToggle, onShift
                 <div style={{ flex:1, padding:"8px 10px", overflowY:"auto" }}>
                   {post&&post.title&&(()=>{
                     const tc=CONTENT_TYPES[post.type]||CONTENT_TYPES.Post;
-                    return <div style={{ padding:"5px 8px", background:tc.soft, borderLeft:`2px solid ${tc.color}`, borderRadius:4, marginBottom:8 }}>
-                      <p style={{ margin:0, fontSize:8.5, fontWeight:800, color:tc.color, letterSpacing:"0.1em" }}>{post.type.toUpperCase()}</p>
-                      <p style={{ margin:0, fontSize:10.5, color:T.ink, fontWeight:600, lineHeight:1.3 }}>{post.title.length>36?post.title.slice(0,36)+"…":post.title}</p>
+                    const isPosted=!!post.posted;
+                    return <div style={{ padding:"5px 8px", background:isPosted?"#F0FDF4":tc.soft, borderLeft:`2px solid ${isPosted?"#10B981":tc.color}`, borderRadius:4, marginBottom:8 }}>
+                      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                        <p style={{ margin:0, fontSize:8.5, fontWeight:800, color:isPosted?"#16A34A":tc.color, letterSpacing:"0.1em" }}>{post.type.toUpperCase()}</p>
+                        {isPosted&&<span style={{ fontSize:9, color:"#16A34A", fontWeight:900 }}>✓</span>}
+                      </div>
+                      <p style={{ margin:0, fontSize:10.5, color:isPosted?"#16A34A":T.ink, fontWeight:600, lineHeight:1.3, textDecoration:isPosted?"line-through":"none", opacity:isPosted?0.7:1 }}>{post.title.length>36?post.title.slice(0,36)+"…":post.title}</p>
                     </div>;
                   })()}
                   {events.map((e,i)=><p key={i} style={{ fontSize:10, color:T.gold, fontWeight:600, marginBottom:4 }}>• {e.text}</p>)}
@@ -3041,7 +3049,8 @@ function MonthView({ selDate, tasksByDate, content, onPickDate, onMoveTask, onAd
                     {/* Post pill */}
                     {post&&post.title&&(()=>{
                       const tc=CONTENT_TYPES[post.type]||CONTENT_TYPES.Post;
-                      return <p style={{ margin:"0 0 3px", fontSize:8.5, color:T.ink, lineHeight:1.2, fontWeight:700, paddingLeft:4, borderLeft:`2px solid ${tc.color}` }}>{post.title.length>28?post.title.slice(0,28)+"…":post.title}</p>;
+                      const isPosted=!!post.posted;
+                      return <p style={{ margin:"0 0 3px", fontSize:8.5, color:isPosted?"#16A34A":T.ink, lineHeight:1.2, fontWeight:700, paddingLeft:4, borderLeft:`2px solid ${isPosted?"#10B981":tc.color}`, textDecoration:isPosted?"line-through":"none", opacity:isPosted?0.7:1 }}>{isPosted?"✓ ":""}{post.title.length>28?post.title.slice(0,28)+"…":post.title}</p>;
                     })()}
 
                     {/* Key tasks */}
@@ -7844,6 +7853,7 @@ const iconBtnStyle = {
 };
 
 function ContentCard({ post, onChange, onDelete, onDragStart, onDragEnd, dragging }) {
+  const posted = !!post.posted;
   const tc = CONTENT_TYPES[post.type] || CONTENT_TYPES.Post;
   const [editing, setEditing] = useSc(false);
   const [text, setText] = useSc(post.title);
@@ -7878,15 +7888,15 @@ function ContentCard({ post, onChange, onDelete, onDragStart, onDragEnd, draggin
       }}
       onDragEnd={onDragEnd}
       style={{
-        background:T.cardBg,
-        border:`1px solid ${T.border}`,
-        borderLeft:`4px solid ${tc.color}`,
+        background: posted ? "#F0FDF4" : T.cardBg,
+        border:`1px solid ${posted ? "#86EFAC" : T.border}`,
+        borderLeft:`4px solid ${posted ? "#10B981" : tc.color}`,
         borderRadius:6,
         padding:"10px 12px",
         position:"relative",
         cursor: editing ? "text" : "grab",
         opacity: dragging ? 0.4 : 1,
-        transition:"opacity 0.1s",
+        transition:"background 0.2s, border 0.2s",
       }}
     >
       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:6, gap:6, flexWrap:"wrap" }}>
@@ -7906,6 +7916,11 @@ function ContentCard({ post, onChange, onDelete, onDragStart, onDragEnd, draggin
             </button>
             {typeOpen && <ContentTypePicker value={post.type} onChange={(t) => onChange({...post, type:t})} onClose={() => setTypeOpen(false)}/>}
           </div>
+          {posted && (
+            <span style={{ display:"inline-flex", alignItems:"center", gap:3, padding:"2px 7px", borderRadius:3, background:"#DCFCE7", color:"#16A34A", fontSize:9, fontWeight:800, letterSpacing:"0.08em" }}>
+              ✓ POSTED
+            </span>
+          )}
           <div style={{ position:"relative" }} ref={pillarRef}>
             <button onClick={(e) => { e.stopPropagation(); setPillarOpen(o => !o); setTypeOpen(false); }} title="Counts towards monthly pillar" style={{
               display:"inline-flex", alignItems:"center", gap:5,
@@ -7956,6 +7971,19 @@ function ContentCard({ post, onChange, onDelete, onDragStart, onDragEnd, draggin
           </div>
         </div>
         <div style={{ display:"flex", alignItems:"center", gap:4 }}>
+          {/* Posted tick toggle */}
+          <button
+            onClick={(e) => { e.stopPropagation(); onChange({ ...post, posted: !posted, updatedAt: Date.now() }); }}
+            title={posted ? "Mark as not posted" : "Mark as posted ✓"}
+            style={{
+              width:22, height:22, borderRadius:"50%", border:"none", cursor:"pointer",
+              display:"inline-flex", alignItems:"center", justifyContent:"center",
+              background: posted ? "#10B981" : T.surface2,
+              color: posted ? "#fff" : T.muted,
+              fontSize:12, fontWeight:900, lineHeight:1,
+              transition:"background 0.15s, color 0.15s",
+              flexShrink:0,
+            }}>✓</button>
           <span title="Drag to reschedule" style={{ color:T.faint, padding:"0 2px", cursor:"grab" }}>
             <svg width="11" height="11" viewBox="0 0 12 12" fill="currentColor"><circle cx="3" cy="3" r="1"/><circle cx="3" cy="6" r="1"/><circle cx="3" cy="9" r="1"/><circle cx="9" cy="3" r="1"/><circle cx="9" cy="6" r="1"/><circle cx="9" cy="9" r="1"/></svg>
           </span>
@@ -7963,7 +7991,7 @@ function ContentCard({ post, onChange, onDelete, onDragStart, onDragEnd, draggin
             <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M11 2l3 3-9 9H2v-3z"/></svg>
           </button>
           <button onClick={(e) => { e.stopPropagation(); onDelete(); }} title="Delete" style={iconBtnStyle}>
-            <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><polyline points="3,4 13,4"/><path d="M5 4V2.5C5 2 5.3 2 5.8 2h4.4c.5 0 .8 0 .8.5V4"/><path d="M4.5 4l.5 9c0 .5.4.5.8.5h4.4c.4 0 .8 0 .8-.5L11.5 4"/></svg>
+            <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><polyline points="3,4 13,4"/><path d="M5 4V2.5C5 2 5.3 2 5.8 2h4.4c.5 0 .8 0 .8-.5V4"/><path d="M4.5 4l.5 9c0 .5.4.5.8.5h4.4c.4 0 .8 0 .8-.5L11.5 4"/></svg>
           </button>
         </div>
       </div>
