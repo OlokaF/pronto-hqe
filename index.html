@@ -12627,6 +12627,31 @@ function MobileDayView({ dk, schedule, setSchedule, tasksByDate, tasksByIdRef, t
     ...((schedule[dk]||{}).oloka||[]).map(b=>({...b,owner:"oloka"})),
   ].sort((a,b)=>(a.startMin||0)-(b.startMin||0));
 
+  // Compute side-by-side column layout for overlapping blocks (Google Calendar style)
+  const blockLayouts = (() => {
+    if (dayBlocks.length === 0) return [];
+    const colEnds = [];
+    const assignments = dayBlocks.map(block => {
+      const s = block.startMin || 0;
+      const e = s + (block.durationMin || 30);
+      let col = 0;
+      while (col < colEnds.length && colEnds[col] > s) col++;
+      colEnds[col] = e;
+      return { block, col };
+    });
+    return assignments.map(({ block, col }) => {
+      const s = block.startMin || 0;
+      const e = s + (block.durationMin || 30);
+      let maxCol = col;
+      assignments.forEach(({ block: b2, col: c2 }) => {
+        const s2 = b2.startMin || 0;
+        const e2 = s2 + (b2.durationMin || 30);
+        if (s < e2 && e > s2) maxCol = Math.max(maxCol, c2);
+      });
+      return { block, col, totalCols: maxCol + 1 };
+    });
+  })();
+
   const todayKey = isoDate(today());
   const nowMin = new Date().getHours()*60 + new Date().getMinutes();
   const isToday = dk === todayKey;
@@ -12868,7 +12893,7 @@ function MobileDayView({ dk, schedule, setSchedule, tasksByDate, tasksByIdRef, t
           }).filter(Boolean)}
 
           {/* Blocks */}
-          {dayBlocks.map((block, bi) => {
+          {blockLayouts.map(({ block, col, totalCols }, bi) => {
             const task = tasksByIdRef[block.taskId];
             const scheme = getMobileCatScheme(block, task);
             const label = block.isBreak ? block.breakLabel : (task?.text||task?.title||block.qeTitle||"Event");
@@ -12880,18 +12905,28 @@ function MobileDayView({ dk, schedule, setSchedule, tasksByDate, tasksByIdRef, t
             const displayDur = isResize ? resizing.currentDurationMin : (block.durationMin||30);
             const blockH = Math.max(26, displayDur*MOBILE_PX - 2);
             const isActive = isDrag || isResize;
+            const isOverlapping = totalCols > 1;
+            // Overlap positioning: split the content area (after 44px label) into n equal columns
+            const blockLeft = isOverlapping
+              ? `calc(44px + ${col / totalCols} * (100% - 44px) + ${col > 0 ? 2 : 0}px)`
+              : 44;
+            const blockWidth = isOverlapping
+              ? `calc(${100 / totalCols}% - ${44 / totalCols}px - 4px)`
+              : undefined;
             return (
               <div key={bi}
                 onTouchStart={e => handleBlockTouchStart(e, block)}
                 style={{
                   position:"absolute",
                   top: displayMin*MOBILE_PX,
-                  left:44, right:0, height:blockH,
+                  left: blockLeft,
+                  ...(isOverlapping ? { width: blockWidth } : { right: 0 }),
+                  height:blockH,
                   background:scheme.bg,
                   border:`1px solid ${scheme.border}33`,
                   borderLeft:`3px solid ${scheme.border}`,
                   borderRadius:"0 10px 10px 0",
-                  padding:"3px 8px 16px",
+                  padding:"3px 6px 16px",
                   zIndex: isActive ? 20 : 5,
                   opacity: isDrag ? 0.9 : 1,
                   boxShadow: isActive ? "0 6px 20px rgba(0,0,0,0.25)" : "none",
@@ -12904,8 +12939,9 @@ function MobileDayView({ dk, schedule, setSchedule, tasksByDate, tasksByIdRef, t
                 }}>
                 <div style={{ flex:1, minWidth:0 }}>
                   <div style={{ fontSize:9, fontWeight:700, color:scheme.border, lineHeight:1.2 }}>{fmtTime(displayMin)}{isResize ? ` – ${fmtTime(displayMin+displayDur)}` : ""}</div>
-                  <div style={{ fontSize:12, fontWeight:800, color:T.heading, lineHeight:1.2, overflow:"hidden", whiteSpace:"nowrap", textOverflow:"ellipsis" }}>{label}</div>
-                  {displayDur >= 45 && <div style={{ fontSize:9, color:T.muted, marginTop:1 }}>{displayDur >= 60 ? `${Math.floor(displayDur/60)}h${displayDur%60?` ${displayDur%60}m`:""}` : `${displayDur}m`}</div>}
+                  <div style={{ fontSize:isOverlapping ? 11 : 12, fontWeight:800, color:T.heading, lineHeight:1.3, overflow:"hidden", display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", textOverflow:"ellipsis" }}>{label}</div>
+                  {displayDur >= 45 && !isOverlapping && <div style={{ fontSize:9, color:T.muted, marginTop:1 }}>{displayDur >= 60 ? `${Math.floor(displayDur/60)}h${displayDur%60?` ${displayDur%60}m`:""}` : `${displayDur}m`}</div>}
+                  {displayDur >= 60 && isOverlapping && <div style={{ fontSize:9, color:T.muted, marginTop:1 }}>{displayDur >= 60 ? `${Math.floor(displayDur/60)}h${displayDur%60?` ${displayDur%60}m`:""}` : `${displayDur}m`}</div>}
                 </div>
                 <div style={{ display:"flex", alignItems:"center", gap:4, flexShrink:0, marginLeft:6 }}>
                   <div style={{ width:16, height:16, borderRadius:"50%", background:ownerColor, display:"flex", alignItems:"center", justifyContent:"center" }}>
