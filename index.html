@@ -15860,10 +15860,10 @@ function PostApprovalView({ postApprovals, setPostApprovals, todayUser, avatars 
                     <button onClick={() => updateStatus(post.id, "sent_to_bronson", "Sent to Bronson for review.")} style={{ background:"#7C3AED", border:"none", borderRadius:5, color:"#fff", padding:"6px 14px", fontSize:10.5, fontWeight:800, cursor:"pointer", fontFamily:"inherit", letterSpacing:"0.06em" }}>→ SEND TO BRONSON</button>
                   </div>
                 )}
-                {canApprove && post.status === "approved" && (
+                {post.status === "approved" && (
                   <div style={{ display:"flex", gap:8, marginTop:12, paddingTop:12, borderTop:`1px solid ${T.border}` }}>
                     <button onClick={() => updateStatus(post.id, "published", "Marked as published.")} style={{ background:"#2563EB", border:"none", borderRadius:5, color:"#fff", padding:"6px 14px", fontSize:10.5, fontWeight:800, cursor:"pointer", fontFamily:"inherit", letterSpacing:"0.06em" }}>↑ MARK PUBLISHED</button>
-                    <button onClick={() => updateStatus(post.id, "pending", "")} style={{ background:"transparent", border:`1px solid ${T.border}`, borderRadius:5, color:T.muted, padding:"6px 12px", fontSize:10.5, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>Reset</button>
+                    {canApprove && <button onClick={() => updateStatus(post.id, "pending", "")} style={{ background:"transparent", border:`1px solid ${T.border}`, borderRadius:5, color:T.muted, padding:"6px 12px", fontSize:10.5, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>Reset</button>}
                   </div>
                 )}
                 {canApprove && (post.status==="rejected"||post.status==="sent_to_bronson"||post.status==="published") && (
