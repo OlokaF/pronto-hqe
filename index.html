@@ -14683,6 +14683,19 @@ function App({ onSwitchWorkspace = () => {} }) {
   const fileInputRef = useR(null);
   const syncRef = useR(null);
   const importState = () => fileInputRef.current && fileInputRef.current.click();
+  // Firebase stores arrays as {0:..., 1:...} objects — convert them back
+  const fbToArr = (val) => {
+    if (Array.isArray(val)) return val.map(fbToArr);
+    if (val && typeof val === "object") {
+      const keys = Object.keys(val);
+      const allNumeric = keys.length > 0 && keys.every(k => /^\d+$/.test(k));
+      if (allNumeric) return keys.sort((a,b)=>Number(a)-Number(b)).map(k => fbToArr(val[k]));
+      const out = {};
+      keys.forEach(k => { out[k] = fbToArr(val[k]); });
+      return out;
+    }
+    return val;
+  };
   const handleImportFile = (e) => {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
@@ -14693,7 +14706,8 @@ function App({ onSwitchWorkspace = () => {} }) {
         if (!data || typeof data !== "object") throw new Error("Invalid file");
         if (!confirm("Replace ALL current data with the contents of this file? Your local edits will be overwritten.")) return;
         // Support both direct export format and Firebase backup (prontoHQ.state.oloka)
-        const s = data.prontoHQ?.state?.oloka || data.prontoHQ?.state?.vanja || data;
+        const raw = data.prontoHQ?.state?.oloka || data.prontoHQ?.state?.vanja || data;
+        const s = fbToArr(raw);
         if (s.tasksByDate) setTasksByDate(s.tasksByDate);
         if (s.schedule) setSchedule(s.schedule);
         if (s.dayNotes) setDayNotes(s.dayNotes);
