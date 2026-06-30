@@ -5390,7 +5390,7 @@ function PlanView({ plan, setPlan }) {
   const updateItem = (id, text) => setPlan(p => ({ ...p, items: p.items.map(it => it.id === id ? { ...it, text } : it) }));
   const delItem = (id) => setPlan(p => ({ ...p, items: p.items.filter(it => it.id !== id) }));
   const addItem = (section, monthIdx) => setPlan(p => {
-    const id = Math.max(0, ...p.items.map(it => it.id)) + 1;
+    const id = Date.now();
     return { ...p, items: [...p.items, { id, section, monthIdx, text: "" }] };
   });
 
@@ -14870,7 +14870,7 @@ function App({ onSwitchWorkspace = () => {} }) {
     logActivity(todayUser, "added task", data.text || "New task");
     setTasksByDate(prev => {
       const arr = prev[dateKey] || [];
-      const id = Math.max(0, ...Object.values(prev).flat().map(t => t.id)) + 1;
+      const id = Date.now();
       return { ...prev, [dateKey]: [...arr, { ...data, id, updatedAt: _now() }] };
     });
   };
