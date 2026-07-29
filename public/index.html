@@ -1413,10 +1413,7 @@ function _mergeState(myState, theirState, myIdentity) {
     toBeCompleted: _mergeById(myState.toBeCompleted, theirState.toBeCompleted),
     ongoingJobs: _mergeById(myState.ongoingJobs, theirState.ongoingJobs),
     toPostList: _mergeById(myState.toPostList, theirState.toPostList),
-    lunches: _mergeById(
-      (myState.lunches||[]).map(l => l.id ? l : { ...l, id: ('lunch_'+(l.name||'')+'_'+(l.date||'')).replace(/[^a-z0-9_]/gi,'_').slice(0,40) }),
-      (theirState.lunches||[]).map(l => l.id ? l : { ...l, id: ('lunch_'+(l.name||'')+'_'+(l.date||'')).replace(/[^a-z0-9_]/gi,'_').slice(0,40) })
-    ),
+    lunches: (() => { const _bl = getDeletedLunchIds(); const _ei = l => l.id ? l : { ...l, id: ('lunch_'+(l.name||'')+'_'+(l.date||'')).replace(/[^a-z0-9_]/gi,'_').slice(0,40) }; return _mergeById((myState.lunches||[]).map(_ei).filter(l=>!_bl.has(l.id)&&!l.deleted),(theirState.lunches||[]).map(_ei).filter(l=>!_bl.has(l.id)&&!l.deleted)); })(),
     staff: _mergeById(
       (myState.staff||[]).map(s => s.id ? s : { ...s, id: ('staff_'+(s.name||'').replace(/[^a-z0-9]/gi,'_').slice(0,20)+'_'+(s.started||s._addedAt||'')).slice(0,48) }),
       (theirState.staff||[]).map(s => s.id ? s : { ...s, id: ('staff_'+(s.name||'').replace(/[^a-z0-9]/gi,'_').slice(0,20)+'_'+(s.started||s._addedAt||'')).slice(0,48) })
@@ -15194,7 +15191,9 @@ function App({ onSwitchWorkspace = () => {} }) {
     });
     if (s.lunches) setLunches(prev => {
       const ensureId = l => l.id ? l : { ...l, id: ('lunch_'+(l.name||'')+'_'+(l.date||'')).replace(/[^a-z0-9_]/gi,'_').slice(0,40) };
-      return _mergeById((prev||[]).map(ensureId), (Array.isArray(s.lunches)?s.lunches:Object.values(s.lunches||{})).map(ensureId));
+      const blocked = getDeletedLunchIds();
+      const incoming = (Array.isArray(s.lunches)?s.lunches:Object.values(s.lunches||{})).map(ensureId).filter(l => !blocked.has(l.id) && !l.deleted);
+      return _mergeById((prev||[]).map(ensureId), incoming).filter(l => !blocked.has(l.id) && !l.deleted);
     });
     if (s.schedule) setSchedule(s.schedule);
     if (s.actualSchedule) setActualSchedule(s.actualSchedule);
