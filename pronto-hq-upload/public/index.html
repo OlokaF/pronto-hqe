@@ -9916,14 +9916,12 @@ function TeamView({ staff, setStaff, lunches, setLunches }) {
 
   const updateLunch = (i, patch) => setLunches(prev => prev.map((l, idx) => idx === i ? { ...l, ...patch, updatedAt: Date.now() } : l));
   const toggleLunchHad = (i) => setLunches(prev => prev.map((l, idx) => idx === i ? { ...l, had: !l.had, updatedAt: Date.now() } : l));
-  const deleteLunch = (id) => {
-    const ts = Date.now();
-    if (typeof id === 'string') {
-      saveDeletedLunchId(id);
-      setDeletedLunchIds(prev => { const next = new Set(prev); next.add(id); return next; });
-    }
-    if (typeof id === 'number') setLunches(prev => prev.map((l, idx) => idx === id ? { ...l, deleted: true, updatedAt: ts } : l));
-    else setLunches(prev => prev.map(l => l.id !== id ? l : { ...l, deleted: true, updatedAt: ts }));
+  const lunchStableId = (l) => l.id || ('lunch_'+(l.name||'')+'_'+(l.date||'')).replace(/[^a-z0-9_]/gi,'_').slice(0,40) || ('lunch_idx_'+Math.random());
+  const deleteLunchItem = (l) => {
+    const sid = lunchStableId(l);
+    saveDeletedLunchId(sid);
+    setDeletedLunchIds(prev => { const next = new Set(prev); next.add(sid); return next; });
+    setLunches(prev => prev.filter(x => lunchStableId(x) !== sid));
   };
   const addLunch = () => setLunches(prev => [...prev, { id: Date.now() + "_" + Math.random().toString(36).slice(2,6), name:"", date: new Date().toISOString().slice(0,10), type:"Photo", had: false, updatedAt: Date.now() }]);
 
@@ -10147,7 +10145,7 @@ function TeamView({ staff, setStaff, lunches, setLunches }) {
                     {l.had ? "DONE ✓" : "PENDING"}
                   </span>
                   {/* Delete */}
-                  <button onClick={() => deleteLunch(l.id || origIdx)} title="Remove row" style={{
+                  <button onClick={() => deleteLunchItem(l)} title="Remove row" style={{
                     background:"none", border:"none", color:T.faint, cursor:"pointer", fontSize:15,
                     padding:"0 4px", lineHeight:1, justifySelf:"center",
                   }} onMouseEnter={e=>e.currentTarget.style.color="#EF4444"} onMouseLeave={e=>e.currentTarget.style.color=T.faint}>×</button>
